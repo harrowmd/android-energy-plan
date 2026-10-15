@@ -13,11 +13,17 @@ works out each room's floor area and volume, plus the totals.
 - **Draw a room:** drag on the grid. The new room's corners snap to nearby
   walls of existing rooms (or to a 5 cm grid), so adjoining rooms line up.
   When you lift your finger, enter the room's name and exact sizes in metres.
-- **Add a room from the keyboard:** tap **Add room** and type the sizes. It is
+- **Add a room from the keyboard:** tap **+ Room** and type the sizes. It is
   placed to the right of the existing rooms; drag it into position.
 - **Select:** tap a room. **Move:** drag the selected room; its walls snap to
   neighbouring walls.
-- **Edit sizes:** double-tap a room, or select it and tap **Edit sizes**.
+- **Edit sizes:** double-tap a room, or select it and tap **Edit**.
+- **Overlapping rooms:** a room drawn later sits on top. Where rooms overlap,
+  the overlap belongs to the room on top: the room underneath shows (and
+  exports) its area and volume minus the covered part, and the totals don't
+  count it twice. Select a room and use **Send to back** or **Bring to front**
+  (⋮ menu) to change which one is on top — e.g. draw a large room, then a WC
+  inside it, and the large room's area excludes the WC.
 - **Delete:** select a room and tap **Delete**. **Undo** reverses the last
   change (up to 50 steps).
 - **Pan and zoom:** use two fingers. **Fit** zooms to show the whole plan.
@@ -50,13 +56,15 @@ The JSON format:
   "totalVolume": 66.0,
   "rooms": [
     { "name": "Kitchen", "x": 0, "y": 0, "width": 4.2, "depth": 3.1,
-      "height": 2.4, "area": 13.02, "volume": 31.248 }
+      "height": 2.4, "grossArea": 13.02, "area": 13.02, "volume": 31.248 }
   ]
 }
 ```
 
-`x`/`y` is the room's top-left corner on the plan, in metres. `area` and
-`volume` are included for convenience and recalculated on load.
+`x`/`y` is the room's top-left corner on the plan, in metres. Rooms are listed
+in stacking order (bottom first). `grossArea` is width × depth; `area` and
+`volume` exclude any part covered by rooms higher in the list. All three are
+included for convenience and recalculated on load.
 
 ## Building from source
 
@@ -71,5 +79,8 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.1** — Overlapping rooms: **Send to back** / **Bring to front**, and the
+  room underneath loses the overlapped area and volume (marked * in the JPG's
+  room schedule). Labels move to the uncovered part of a room.
 - **v1.0** — First release: draw, move, edit and delete rectangular rooms;
   JPG and JSON export; undo; autosave.

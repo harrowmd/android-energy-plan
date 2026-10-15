@@ -73,68 +73,128 @@ class PlanRenderer(private val d: Float) {
         }
     }
 
-    fun drawRoom(c: Canvas, r: Room, scale: Float, offX: Float, offY: Float, selected: Boolean) {
-        val rect = RectF(
-            offX + (r.x * scale).toFloat(), offY + (r.y * scale).toFloat(),
-            offX + ((r.x + r.width) * scale).toFloat(), offY + ((r.y + r.depth) * scale).toFloat(),
-        )
+    private fun screenRect(r: Room, scale: Float, offX: Float, offY: Float) = RectF(
+        offX + (r.x * scale).toFloat(), offY + (r.y * scale).toFloat(),
+        offX + ((r.x + r.width) * scale).toFloat(), offY + ((r.y + r.depth) * scale).toFloat(),
+    )
+
+    /**
+     * Draws [r] in its place in the stacking order. Labels go in the part of
+     * the room that rooms above it don't cover, so they stay readable.
+     */
+    fun drawRoom(c: Canvas, plan: Plan, r: Room, scale: Float, offX: Float, offY: Float, selected: Boolean) {
+        val rect = screenRect(r, scale, offX, offY)
         c.drawRect(rect, if (selected) fillSelected else fill)
-        c.drawRect(rect, if (selected) wallSelected else wall)
-        drawEdgeDimensions(c, r, rect)
-        drawCentreLabel(c, r, rect)
+        c.drawRect(rect, wall)
+
+        val covers = plan.roomsAbove(r).map { screenRect(it, scale, offX, offY) }
+        val visible = plan.visibleRects(r).map {
+            RectF(offX + (it[0] * scale).toFloat(), offY + (it[1] * scale).toFloat(),
+                offX + (it[2] * scale).toFloat(), offY + (it[3] * scale).toFloat())
+        }
+        if (visible.isEmpty()) return
+        val sides = drawEdgeDimensions(c, r, rect, covers)
+        drawCentreLabel(c, plan, r, rect, visible, sides)
     }
 
-    /** Width along the inside of the top wall, depth rotated along the left wall. */
-    private fun drawEdgeDimensions(c: Canvas, r: Room, rect: RectF) {
+    /** The orange outline is drawn last, so the selected room shows even if it's underneath others. */
+    fun drawSelection(c: Canvas, r: Room, scale: Float, offX: Float, offY: Float) {
+        c.drawRect(screenRect(r, scale, offX, offY), wallSelected)
+    }
+
+    private enum class Side { TOP, BOTTOM, LEFT, RIGHT }
+
+    /**
+     * Width inside the top wall (or the bottom one if the top is covered),
+     * depth rotated inside the left wall (or the right). Returns the walls used.
+     */
+    private fun drawEdgeDimensions(c: Canvas, r: Room, rect: RectF, covers: List<RectF>): Set<Side> {
+        val used = mutableSetOf<Side>()
         val pad = 4f * d
         val size = dimText.textSize
-        if (rect.height() < size * 5) return
+        if (rect.height() < size * 5) return used
+        fun clear(box: RectF) = covers.none { RectF.intersects(it, box) }
 
         val wLabel = "${fmtM(r.width)} m"
-        if (dimText.measureText(wLabel) + 2 * pad < rect.width()) {
-            c.drawText(wLabel, rect.centerX(), rect.top + pad + size, dimText)
+        val tw = dimText.measureText(wLabel)
+        if (tw + 2 * pad < rect.width()) {
+            val top = RectF(rect.centerX() - tw / 2, rect.top + pad, rect.centerX() + tw / 2, rect.top + pad + size * 1.2f)
+            val bottom = RectF(top.left, rect.bottom - pad - size * 1.2f, top.right, rect.bottom - pad)
+            when {
+                clear(top) -> { c.drawText(wLabel, rect.centerX(), rect.top + pad + size, dimText); used += Side.TOP }
+                clear(bottom) -> { c.drawText(wLabel, rect.centerX(), rect.bottom - pad - size * 0.25f, dimText); used += Side.BOTTOM }
+            }
         }
+
         val dLabel = "${fmtM(r.depth)} m"
-        if (dimText.measureText(dLabel) + 2 * pad < rect.height() && rect.width() > size * 5) {
-            c.save()
-            c.rotate(-90f, rect.left + pad + size, rect.centerY())
-            c.drawText(dLabel, rect.left + pad + size, rect.centerY(), dimText)
-            c.restore()
+        val td = dimText.measureText(dLabel)
+        if (td + 2 * pad < rect.height() && rect.width() > size * 5) {
+            val cy = rect.centerY()
+            // Rotated -90°, the glyphs sit to the left of the anchor x.
+            fun drawAt(ax: Float) {
+                c.save()
+                c.rotate(-90f, ax, cy)
+                c.drawText(dLabel, ax, cy, dimText)
+                c.restore()
+            }
+            val leftX = rect.left + pad + size
+            val rightX = rect.right - pad
+            when {
+                clear(RectF(leftX - size, cy - td / 2, leftX, cy + td / 2)) -> { drawAt(leftX); used += Side.LEFT }
+                clear(RectF(rightX - size, cy - td / 2, rightX, cy + td / 2)) -> { drawAt(rightX); used += Side.RIGHT }
+            }
+        }
+        return used
+    }
+
+    /**
+     * Name, net area and height, shrunk or trimmed to fit. Tried in every
+     * uncovered block of the room; the block that shows the most lines at the
+     * largest size wins.
+     */
+    private fun drawCentreLabel(c: Canvas, plan: Plan, r: Room, rect: RectF, visible: List<RectF>, sides: Set<Side>) {
+        val all = listOf(
+            r.name to nameText,
+            "${fmtArea(plan.netArea(r))} m²" to infoText,
+            "h ${fmtM(r.height)} m" to infoText,
+        )
+        var best: Triple<RectF, Int, Float>? = null
+        for (block in visible.take(20)) {
+            val area = labelArea(rect, block, sides) ?: continue
+            for (n in all.size downTo 1) {
+                val lines = all.take(n)
+                val needW = lines.maxOf { (t, p) -> p.measureText(t) }
+                val needH = lines.sumOf { (_, p) -> (p.textSize * 1.2f).toDouble() }.toFloat()
+                val s = min(1f, min(area.width() / needW, area.height() / needH))
+                if (s < 0.6f) continue
+                val b = best
+                if (b == null || n > b.second || (n == b.second && s > b.third)) best = Triple(area, n, s)
+                break
+            }
+        }
+        val (area, n, s) = best ?: return
+        val lines = all.take(n)
+        val needH = lines.sumOf { (_, p) -> (p.textSize * 1.2f).toDouble() }.toFloat()
+        var y = area.centerY() - needH * s / 2
+        for ((text, paint) in lines) {
+            val p = TextPaint(paint).apply { textSize = paint.textSize * s }
+            y += p.textSize * 1.2f
+            c.drawText(text, area.centerX(), y - p.textSize * 0.25f, p)
         }
     }
 
-    /** Name, area and height in the middle, shrunk or trimmed to fit the room. */
-    private fun drawCentreLabel(c: Canvas, r: Room, rect: RectF) {
+    /** [block] shrunk by padding, and kept clear of any edge dimension running along its side. */
+    private fun labelArea(rect: RectF, block: RectF, sides: Set<Side>): RectF? {
         val pad = 4f * d
-        // Keep clear of the edge dimensions: the depth label down the left, the width label along the top.
-        val left = rect.left + pad + dimText.textSize * 1.4f
-        val top = rect.top + pad + dimText.textSize * 1.4f
-        val availW = rect.right - pad - left
-        val availH = rect.bottom - pad - top
-        val cx = (left + rect.right - pad) / 2
-        val cy = (top + rect.bottom - pad) / 2
-        if (availW <= 0 || availH <= 0) return
-
-        val all = listOf(
-            r.name to nameText,
-            "${fmtArea(r.area)} m²" to infoText,
-            "h ${fmtM(r.height)} m" to infoText,
+        val reserve = dimText.textSize * 1.4f
+        val eps = 1f
+        val area = RectF(
+            block.left + pad + if (Side.LEFT in sides && block.left <= rect.left + eps) reserve else 0f,
+            block.top + pad + if (Side.TOP in sides && block.top <= rect.top + eps) reserve else 0f,
+            block.right - pad - if (Side.RIGHT in sides && block.right >= rect.right - eps) reserve else 0f,
+            block.bottom - pad - if (Side.BOTTOM in sides && block.bottom >= rect.bottom - eps) reserve else 0f,
         )
-        for (n in all.size downTo 1) {
-            val lines = all.take(n)
-            val needW = lines.maxOf { (t, p) -> p.measureText(t) }
-            val needH = lines.sumOf { (_, p) -> (p.textSize * 1.2f).toDouble() }.toFloat()
-            val s = min(1f, min(availW / needW, availH / needH))
-            if (s < 0.6f) continue
-
-            var y = cy - needH * s / 2
-            for ((text, paint) in lines) {
-                val p = TextPaint(paint).apply { textSize = paint.textSize * s }
-                y += p.textSize * 1.2f
-                c.drawText(text, cx, y - p.textSize * 0.25f, p)
-            }
-            return
-        }
+        return area.takeIf { it.width() > 0 && it.height() > 0 }
     }
 
     fun drawDraft(c: Canvas, rect: RectF, widthM: Double, depthM: Double) {
@@ -171,7 +231,8 @@ class PlanRenderer(private val d: Float) {
             val planH = (bh * scale).toFloat()
 
             val tableTop = headerH + planH + 2 * margin
-            val tableH = rowH * (rooms.size + 2) + 12f * d
+            val hasOverlap = rooms.any { plan.netArea(it) < round3(it.area) }
+            val tableH = rowH * (rooms.size + if (hasOverlap) 3 else 2) + 12f * d
             val width = max(planW + 2 * margin, 1800f).toInt()
             val height = (tableTop + tableH + margin).toInt()
 
@@ -187,7 +248,7 @@ class PlanRenderer(private val d: Float) {
             c.clipRect(0f, headerH, width.toFloat(), tableTop)
             r.drawGrid(c, scale, offX, offY, width, height)
             c.restore()
-            for (room in rooms) r.drawRoom(c, room, scale, offX, offY, false)
+            for (room in rooms) r.drawRoom(c, plan, room, scale, offX, offY, false)
 
             val title = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = 0xFF1A1A1A.toInt(); textSize = 24f * d; typeface = Typeface.DEFAULT_BOLD
@@ -238,11 +299,18 @@ class PlanRenderer(private val d: Float) {
             c.drawLine(left, y + rowH * 0.3f, left + w, y + rowH * 0.3f, line)
             for (r in plan.rooms) {
                 y += rowH
-                row(y, listOf(r.name, fmtM(r.width), fmtM(r.depth), fmtM(r.height), fmtM(r.area), fmtM(r.volume)), body)
+                val net = plan.netArea(r)
+                val mark = if (net < round3(r.area)) " *" else ""
+                row(y, listOf(r.name + mark, fmtM(r.width), fmtM(r.depth), fmtM(r.height), fmtM(net), fmtM(plan.netVolume(r))), body)
             }
             c.drawLine(left, y + rowH * 0.3f, left + w, y + rowH * 0.3f, line)
             y += rowH
             row(y, listOf("Total", "", "", "", fmtM(plan.totalArea), fmtM(plan.totalVolume)), head)
+            if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) {
+                y += rowH
+                body.textAlign = Paint.Align.LEFT
+                c.drawText("* Area and volume exclude the part covered by a room on top.", left, y, body)
+            }
         }
     }
 }

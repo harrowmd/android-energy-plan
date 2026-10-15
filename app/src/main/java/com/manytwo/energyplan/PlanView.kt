@@ -21,7 +21,7 @@ import kotlin.math.round
 /**
  * The drawing surface.
  *  - Drag on empty space (or on a room that isn't selected) to draw a new room.
- *  - Tap a room to select it; drag the selected room to move it.
+ *  - Tap a room to select it (the top one, where rooms overlap); drag the selected room to move it.
  *  - Double-tap a room to edit its sizes.
  *  - Two fingers pan and pinch-zoom.
  * Corners and edges snap to other rooms' walls when close, otherwise to a 5 cm grid.
@@ -154,8 +154,8 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         canvas.drawColor(Color.WHITE)
         val minor = renderer.drawGrid(canvas, scale, offX, offY, width, height)
 
-        for (r in plan.rooms) if (r.id != selectedId) renderer.drawRoom(canvas, r, scale, offX, offY, false)
-        plan.room(selectedId)?.let { renderer.drawRoom(canvas, it, scale, offX, offY, true) }
+        for (r in plan.rooms) renderer.drawRoom(canvas, plan, r, scale, offX, offY, r.id == selectedId)
+        plan.room(selectedId)?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
 
         if (draftVisible) {
             val rect = RectF(sx(min(draftX0, draftX1)), sy(min(draftY0, draftY1)), sx(max(draftX0, draftX1)), sy(max(draftY0, draftY1)))
@@ -308,8 +308,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     private fun roomAt(sx: Float, sy: Float): Room? {
         val x = wx(sx)
         val y = wy(sy)
-        // Selected room first (it's drawn on top), then the last-drawn room.
-        plan.room(selectedId)?.let { if (it.contains(x, y)) return it }
+        // Topmost room in the stacking order.
         return plan.rooms.lastOrNull { it.contains(x, y) }
     }
 

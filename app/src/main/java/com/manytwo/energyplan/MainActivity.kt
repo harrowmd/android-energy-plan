@@ -62,6 +62,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.action_undo).isEnabled = undoStack.isNotEmpty()
+        val selected = plan.room(b.planView.selectedId) != null
+        menu.findItem(R.id.action_send_back).isEnabled = selected
+        menu.findItem(R.id.action_bring_front).isEnabled = selected
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -69,6 +72,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         when (item.itemId) {
             R.id.action_undo -> undo()
             R.id.action_fit -> b.planView.fitToPlan()
+            R.id.action_send_back -> restack { plan.sendToBack(it) }
+            R.id.action_bring_front -> restack { plan.bringToFront(it) }
             R.id.action_save -> askName("Save plan", "Save") { save(share = false) }
             R.id.action_share -> save(share = true)
             R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
@@ -92,7 +97,10 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
     }
 
-    override fun onSelectionChanged(room: Room?) = updateUi()
+    override fun onSelectionChanged(room: Room?) {
+        updateUi()
+        invalidateOptionsMenu()
+    }
 
     override fun onEditRequested(room: Room) = editRoom(room)
 
@@ -125,6 +133,14 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             changed()
             b.planView.select(room.id)
         }
+    }
+
+    /** Changes where the selected room sits in the stack; overlaps go to whichever room is on top. */
+    private fun restack(move: (Room) -> Unit) {
+        val room = plan.room(b.planView.selectedId) ?: return
+        pushUndo()
+        move(room)
+        changed()
     }
 
     private fun deleteSelected() {
@@ -219,10 +235,15 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         supportActionBar?.subtitle = plan.name
         val room = plan.room(b.planView.selectedId)
         b.status.text = when {
-            room != null -> String.format(
-                Locale.UK, "%s\n%s × %s × %s m  ·  %s m²  ·  %s m³",
-                room.name, fmtM(room.width), fmtM(room.depth), fmtM(room.height), fmtM(room.area), fmtM(room.volume),
-            )
+            room != null -> {
+                val net = plan.netArea(room)
+                val covered = round3(room.area) - net
+                val heading = if (covered > 0) String.format(Locale.UK, "%s  ·  %s m² covered by rooms on top", room.name, fmtM(covered)) else room.name
+                String.format(
+                    Locale.UK, "%s\n%s × %s × %s m  ·  %s m²  ·  %s m³",
+                    heading, fmtM(room.width), fmtM(room.depth), fmtM(room.height), fmtM(net), fmtM(plan.netVolume(room)),
+                )
+            }
             plan.rooms.isEmpty() -> "Drag on the grid to draw a room.\nTwo fingers to pan and zoom."
             else -> String.format(
                 Locale.UK, "%d rooms  ·  %s m²  ·  %s m³\nTap: select · drag: move · double-tap: edit",

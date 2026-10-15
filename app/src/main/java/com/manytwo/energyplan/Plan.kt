@@ -28,16 +28,87 @@ data class Room(
         px >= x && px <= x + width && py >= y && py <= y + depth
 }
 
+/**
+ * [rooms] is in stacking order: later rooms sit on top of earlier ones.
+ * Where rooms overlap, the overlap belongs to the room on top, so a room's
+ * net area is its own rectangle minus whatever rooms above it cover.
+ */
 class Plan(
     var name: String = "Untitled plan",
     val rooms: MutableList<Room> = mutableListOf(),
 ) {
-    val totalArea get() = rooms.sumOf { it.area }
-    val totalVolume get() = rooms.sumOf { it.volume }
+    val totalArea get() = rooms.sumOf { netArea(it) }
+    val totalVolume get() = rooms.sumOf { netVolume(it) }
 
     fun room(id: Long?) = rooms.firstOrNull { it.id == id }
     fun nextId() = (rooms.maxOfOrNull { it.id } ?: 0L) + 1
     fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList())
+
+    /** Rooms stacked above [r] that actually overlap it. */
+    fun roomsAbove(r: Room): List<Room> {
+        val i = rooms.indexOf(r)
+        if (i < 0) return emptyList()
+        return rooms.subList(i + 1, rooms.size).filter {
+            it.x < r.x + r.width && it.x + it.width > r.x && it.y < r.y + r.depth && it.y + it.depth > r.y
+        }
+    }
+
+    fun netArea(r: Room) = round3(r.area - cover(r).coveredArea)
+    fun netVolume(r: Room) = netArea(r) * r.height
+
+    /** Uncovered rectangles of [r] as (x0, y0, x1, y1), biggest first; empty if it's hidden completely. */
+    fun visibleRects(r: Room): List<DoubleArray> = cover(r).free
+
+    fun sendToBack(r: Room) {
+        if (rooms.remove(r)) rooms.add(0, r)
+    }
+
+    fun bringToFront(r: Room) {
+        if (rooms.remove(r)) rooms.add(r)
+    }
+
+    private class Cover(val coveredArea: Double, val free: List<DoubleArray>)
+
+    /**
+     * Splits [r] into a grid along every edge of the rooms above it; each
+     * cell is then either wholly covered or wholly free. That gives the exact
+     * covered area (no double-counting where the covering rooms overlap each
+     * other) and, by brute force over the few cells, every free block.
+     */
+    private fun cover(r: Room): Cover {
+        val above = roomsAbove(r)
+        val x1 = r.x + r.width
+        val y1 = r.y + r.depth
+        if (above.isEmpty()) return Cover(0.0, listOf(doubleArrayOf(r.x, r.y, x1, y1)))
+
+        val xs = (listOf(r.x, x1) + above.flatMap { listOf(it.x, it.x + it.width) })
+            .map { it.coerceIn(r.x, x1) }.distinct().sorted()
+        val ys = (listOf(r.y, y1) + above.flatMap { listOf(it.y, it.y + it.depth) })
+            .map { it.coerceIn(r.y, y1) }.distinct().sorted()
+        val nx = xs.size - 1
+        val ny = ys.size - 1
+        val covered = Array(nx) { i ->
+            BooleanArray(ny) { j ->
+                val cx = (xs[i] + xs[i + 1]) / 2
+                val cy = (ys[j] + ys[j + 1]) / 2
+                above.any { it.contains(cx, cy) }
+            }
+        }
+
+        var area = 0.0
+        for (i in 0 until nx) for (j in 0 until ny) {
+            if (covered[i][j]) area += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j])
+        }
+
+        val free = mutableListOf<DoubleArray>()
+        for (i0 in 0 until nx) for (i1 in i0 until nx) for (j0 in 0 until ny) for (j1 in j0 until ny) {
+            if ((i0..i1).all { i -> (j0..j1).none { j -> covered[i][j] } }) {
+                free += doubleArrayOf(xs[i0], ys[j0], xs[i1 + 1], ys[j1 + 1])
+            }
+        }
+        free.sortByDescending { (it[2] - it[0]) * (it[3] - it[1]) }
+        return Cover(area, free)
+    }
 
     fun toJson(): String {
         val roomArray = JSONArray()
@@ -49,8 +120,9 @@ class Plan(
                 put("width", r.width)
                 put("depth", r.depth)
                 put("height", r.height)
-                put("area", round3(r.area))
-                put("volume", round3(r.volume))
+                put("grossArea", round3(r.area))
+                put("area", round3(netArea(r)))
+                put("volume", round3(netVolume(r)))
             })
         }
         return JSONObject().apply {
@@ -68,7 +140,7 @@ class Plan(
     companion object {
         const val FORMAT = "m21energyplan"
 
-        /** Parses a plan saved by [toJson]. area/volume are derived, so they're ignored on load. */
+        /** Parses a plan saved by [toJson]. Areas and volumes are derived, so they're ignored on load. */
         fun fromJson(text: String): Plan {
             val o = JSONObject(text)
             val arr = o.getJSONArray("rooms")
