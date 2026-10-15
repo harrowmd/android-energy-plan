@@ -106,8 +106,13 @@ class PlanRenderer(private val d: Float) {
     /** Name, area and height in the middle, shrunk or trimmed to fit the room. */
     private fun drawCentreLabel(c: Canvas, r: Room, rect: RectF) {
         val pad = 4f * d
-        val availW = rect.width() - 2 * pad - 2 * dimText.textSize
-        val availH = rect.height() - 2 * pad - 2 * dimText.textSize
+        // Keep clear of the edge dimensions: the depth label down the left, the width label along the top.
+        val left = rect.left + pad + dimText.textSize * 1.4f
+        val top = rect.top + pad + dimText.textSize * 1.4f
+        val availW = rect.right - pad - left
+        val availH = rect.bottom - pad - top
+        val cx = (left + rect.right - pad) / 2
+        val cy = (top + rect.bottom - pad) / 2
         if (availW <= 0 || availH <= 0) return
 
         val all = listOf(
@@ -122,11 +127,11 @@ class PlanRenderer(private val d: Float) {
             val s = min(1f, min(availW / needW, availH / needH))
             if (s < 0.6f) continue
 
-            var y = rect.centerY() - needH * s / 2
+            var y = cy - needH * s / 2
             for ((text, paint) in lines) {
                 val p = TextPaint(paint).apply { textSize = paint.textSize * s }
                 y += p.textSize * 1.2f
-                c.drawText(text, rect.centerX(), y - p.textSize * 0.25f, p)
+                c.drawText(text, cx, y - p.textSize * 0.25f, p)
             }
             return
         }

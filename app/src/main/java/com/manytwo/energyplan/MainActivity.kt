@@ -223,9 +223,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 Locale.UK, "%s\n%s × %s × %s m  ·  %s m²  ·  %s m³",
                 room.name, fmtM(room.width), fmtM(room.depth), fmtM(room.height), fmtM(room.area), fmtM(room.volume),
             )
-            plan.rooms.isEmpty() -> "Drag on the grid to draw a room, then type its exact sizes.\nTwo fingers to pan and zoom."
+            plan.rooms.isEmpty() -> "Drag on the grid to draw a room.\nTwo fingers to pan and zoom."
             else -> String.format(
-                Locale.UK, "%d rooms  ·  %s m²  ·  %s m³\nTap a room to select · drag it to move · double-tap to edit",
+                Locale.UK, "%d rooms  ·  %s m²  ·  %s m³\nTap: select · drag: move · double-tap: edit",
                 plan.rooms.size, fmtArea(plan.totalArea), fmtArea(plan.totalVolume),
             )
         }
