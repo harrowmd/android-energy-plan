@@ -44,20 +44,48 @@ class Plan(
     fun nextId() = (rooms.maxOfOrNull { it.id } ?: 0L) + 1
     fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList())
 
+    private fun overlaps(a: Room, b: Room) =
+        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.depth && a.y + a.depth > b.y
+
     /** Rooms stacked above [r] that actually overlap it. */
     fun roomsAbove(r: Room): List<Room> {
         val i = rooms.indexOf(r)
         if (i < 0) return emptyList()
-        return rooms.subList(i + 1, rooms.size).filter {
-            it.x < r.x + r.width && it.x + it.width > r.x && it.y < r.y + r.depth && it.y + it.depth > r.y
-        }
+        return rooms.subList(i + 1, rooms.size).filter { overlaps(it, r) }
     }
+
+    /** Rooms stacked below [r] that actually overlap it, nearest first. */
+    private fun roomsBelow(r: Room): List<Room> {
+        val i = rooms.indexOf(r)
+        if (i <= 0) return emptyList()
+        return rooms.subList(0, i).filter { overlaps(it, r) }.reversed()
+    }
+
+    fun canBringForward(r: Room) = roomsAbove(r).isNotEmpty()
+    fun canSendBackward(r: Room) = roomsBelow(r).isNotEmpty()
 
     fun netArea(r: Room) = round3(r.area - cover(r).coveredArea)
     fun netVolume(r: Room) = netArea(r) * r.height
 
     /** Uncovered rectangles of [r] as (x0, y0, x1, y1), biggest first; empty if it's hidden completely. */
     fun visibleRects(r: Room): List<DoubleArray> = cover(r).free
+
+    /**
+     * One step up past the nearest overlapping room above. Stepping past a
+     * room it doesn't touch would change nothing visible, so those are skipped.
+     */
+    fun bringForward(r: Room) {
+        val target = roomsAbove(r).firstOrNull() ?: return
+        rooms.remove(r)
+        rooms.add(rooms.indexOf(target) + 1, r)
+    }
+
+    /** One step down past the nearest overlapping room below. */
+    fun sendBackward(r: Room) {
+        val target = roomsBelow(r).firstOrNull() ?: return
+        rooms.remove(r)
+        rooms.add(rooms.indexOf(target), r)
+    }
 
     fun sendToBack(r: Room) {
         if (rooms.remove(r)) rooms.add(0, r)

@@ -64,9 +64,14 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         menu.findItem(R.id.action_undo).isEnabled = undoStack.isNotEmpty()
-        val selected = plan.room(b.planView.selectedId) != null
-        menu.findItem(R.id.action_send_back).isEnabled = selected
-        menu.findItem(R.id.action_bring_front).isEnabled = selected
+        // Each stacking action is only offered when it would change something.
+        val room = plan.room(b.planView.selectedId)
+        val up = room != null && plan.canBringForward(room)
+        val down = room != null && plan.canSendBackward(room)
+        menu.findItem(R.id.action_bring_forward).isEnabled = up
+        menu.findItem(R.id.action_bring_front).isEnabled = up
+        menu.findItem(R.id.action_send_backward).isEnabled = down
+        menu.findItem(R.id.action_send_back).isEnabled = down
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -74,8 +79,10 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         when (item.itemId) {
             R.id.action_undo -> undo()
             R.id.action_fit -> b.planView.fitToPlan()
-            R.id.action_send_back -> restack { plan.sendToBack(it) }
+            R.id.action_bring_forward -> restack { plan.bringForward(it) }
             R.id.action_bring_front -> restack { plan.bringToFront(it) }
+            R.id.action_send_backward -> restack { plan.sendBackward(it) }
+            R.id.action_send_back -> restack { plan.sendToBack(it) }
             R.id.action_save -> askName("Save plan", "Save") { save(share = false) }
             R.id.action_share -> save(share = true)
             R.id.action_share_log -> shareLog()
@@ -240,6 +247,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         PlanStorage.autosave(this, plan)
         b.planView.invalidate()
         updateUi()
+        invalidateOptionsMenu()
     }
 
     private fun setPlan(p: Plan, fit: Boolean = true) {

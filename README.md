@@ -23,8 +23,10 @@ works out each room's floor area and volume, plus the totals.
 - **Overlapping rooms:** a room drawn later sits on top. Where rooms overlap,
   the overlap belongs to the room on top: the room underneath shows (and
   exports) its area and volume minus the covered part, and the totals don't
-  count it twice. Select a room and use **Send to back** or **Bring to front**
-  (⋮ menu) to change which one is on top — e.g. draw a large room, then a WC
+  count it twice. Select a room and use the ⋮ menu to change which one is on
+  top: **Bring forward** / **Send backward** move it one step past the next
+  room it overlaps (rooms it doesn't touch are skipped), and **Bring to front**
+  / **Send to back** move it all the way. E.g. draw a large room, then a WC
   inside it, and the large room's area excludes the WC.
 - **Delete:** select a room and tap **Delete**. **Undo** reverses the last
   change (up to 50 steps).
@@ -90,6 +92,8 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.4** — **Bring forward** / **Send backward**: one step at a time, past
+  the next overlapping room. Stacking menu items grey out when they'd do nothing.
 - **v1.3** — One-finger drawing is now a setting (**⋮ → Settings…**), off by
   default: a one-finger drag pans instead of creating a room. Fixed the ⋮ menu's
   white-on-light text.
