@@ -39,9 +39,17 @@ works out each room's floor area and volume, plus the totals.
 |---|---|
 | Plan image with a room schedule and 1 m scale bar | `Pictures/EnergyPlan/<name>.jpg` |
 | Plan data | `Documents/EnergyPlan/<name>.json` |
+| App log (for debugging) | `Documents/EnergyPlan/<name>-log.txt` |
 
 Saving again under the same name overwrites both files. **Share JPG** saves and
 then opens the Android share sheet. **Open plan…** loads a saved `.json` file.
+
+The log records app starts (version, device, Android version), every room
+drawn, added, edited, moved, deleted or restacked, undo, saves and opens, and
+any errors or crashes with their stack traces. It is kept privately by the app
+(capped at about 0.5 MB, oldest lines dropped first), copied out on every save
+— even a failed one — and can be sent from **⋮ → Share log**. The same lines go
+to logcat under the tag `EnergyPlan`.
 
 The JSON format:
 
@@ -79,6 +87,8 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.2** — App log: saved as `<name>-log.txt` next to the JSON, **Share
+  log** menu item, and crashes are recorded with their stack trace.
 - **v1.1** — Overlapping rooms: **Send to back** / **Bring to front**, and the
   room underneath loses the overlapped area and volume (marked * in the JPG's
   room schedule). Labels move to the uncovered part of a room.

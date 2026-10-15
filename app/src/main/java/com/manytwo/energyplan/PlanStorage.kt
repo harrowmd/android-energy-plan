@@ -16,7 +16,8 @@ import java.io.OutputStream
  *   JSON -> Documents/EnergyPlan/<name>.json
  *   JPG  -> Pictures/EnergyPlan/<name>.jpg   (shows up in the gallery)
  * Saving again under the same name overwrites the earlier files.
- * The working plan is also autosaved privately after every change.
+ * The working plan is also autosaved privately after every change, and the
+ * app log is copied alongside the JSON (Documents/EnergyPlan/<name>-log.txt).
  */
 object PlanStorage {
     private const val FOLDER = "EnergyPlan"
@@ -42,6 +43,12 @@ object PlanStorage {
         }
     }
 
+    /** Copies the app log next to the JSON, as <name>-log.txt. */
+    fun saveLog(ctx: Context, plan: Plan): Uri =
+        writeMedia(ctx, MediaStore.Files.getContentUri("external"), "${fileBase(plan.name)}-log.txt", "text/plain", JSON_DIR) {
+            it.write(AppLog.text().toByteArray())
+        }
+
     fun readText(ctx: Context, uri: Uri): String =
         ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
             ?: throw IOException("Could not open file")
@@ -53,6 +60,7 @@ object PlanStorage {
     fun loadAutosave(ctx: Context): Plan? = try {
         autosaveFile(ctx).takeIf { it.exists() }?.let { Plan.fromJson(it.readText()) }
     } catch (e: Exception) {
+        AppLog.e("Autosaved plan could not be read - starting a new one", e)
         null
     }
 

@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         WindowInsetsControllerCompat(window, b.root).isAppearanceLightStatusBars = false
 
         plan = PlanStorage.loadAutosave(this) ?: Plan()
+        AppLog.i("Opened plan '${plan.name}' with ${plan.rooms.size} rooms, ${fmtM(plan.totalArea)} m²")
         b.planView.listener = this
         b.planView.plan = plan
 
@@ -76,6 +77,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_bring_front -> restack { plan.bringToFront(it) }
             R.id.action_save -> askName("Save plan", "Save") { save(share = false) }
             R.id.action_share -> save(share = true)
+            R.id.action_share_log -> shareLog()
             R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
             R.id.action_rename -> askName("Rename plan", "Rename") {}
             R.id.action_new -> confirmNewPlan()
@@ -92,6 +94,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         showRoomDialog("New room", draft, onDismiss = { b.planView.clearDraft() }) { room ->
             pushUndo()
             plan.rooms.add(room)
+            AppLog.i("Drew room ${room.describe()}")
             changed()
             b.planView.select(room.id)
         }
@@ -104,9 +107,17 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     override fun onEditRequested(room: Room) = editRoom(room)
 
-    override fun onBeforeMove() = pushUndo()
+    private var moveStart = ""
 
-    override fun onRoomMoved() = changed()
+    override fun onBeforeMove() {
+        pushUndo()
+        moveStart = plan.room(b.planView.selectedId)?.let { "(${fmtM(it.x)}, ${fmtM(it.y)})" } ?: "?"
+    }
+
+    override fun onRoomMoved() {
+        plan.room(b.planView.selectedId)?.let { AppLog.i("Moved '${it.name}' from $moveStart to (${fmtM(it.x)}, ${fmtM(it.y)})") }
+        changed()
+    }
 
     // --- rooms ---
 
@@ -116,6 +127,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         showRoomDialog("Add room", draft) { room ->
             pushUndo()
             plan.rooms.add(room)
+            AppLog.i("Added room from keyboard ${room.describe()}")
             changed()
             b.planView.select(room.id)
             b.planView.fitToPlan()
@@ -125,6 +137,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     private fun editRoom(room: Room) {
         showRoomDialog("Edit room", room) { edited ->
             pushUndo()
+            AppLog.i("Edited room ${room.describe()} -> ${edited.describe()}")
             // Undo snapshot holds copies, so it's safe to change the live room in place.
             room.name = edited.name
             room.width = edited.width
@@ -140,6 +153,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val room = plan.room(b.planView.selectedId) ?: return
         pushUndo()
         move(room)
+        AppLog.i("Restacked '${room.name}': stack is now ${plan.rooms.joinToString(" < ") { "'${it.name}'" }}; net area ${fmtM(plan.netArea(room))} m²")
         changed()
     }
 
@@ -147,6 +161,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val room = plan.room(b.planView.selectedId) ?: return
         pushUndo()
         plan.rooms.remove(room)
+        AppLog.i("Deleted room ${room.describe()}")
         changed()
         b.planView.select(null)
         Toast.makeText(this, "Deleted ${room.name} (Undo to restore)", Toast.LENGTH_SHORT).show()
@@ -192,6 +207,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     private fun parseSize(field: EditText): Double? {
         val v = field.text.toString().trim().replace(',', '.').toDoubleOrNull()
         if (v == null || v <= 0 || v > 1000) {
+            AppLog.w("Rejected size '${field.text}' in ${resources.getResourceEntryName(field.id)}")
             field.error = "Enter a size in metres, e.g. 3.25"
             return null
         }
@@ -210,6 +226,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     private fun undo() {
         val previous = undoStack.removeLastOrNull() ?: return
+        AppLog.i("Undo (${undoStack.size} steps left)")
         val keepSelection = b.planView.selectedId
         setPlan(previous, fit = false)
         b.planView.select(keepSelection)
@@ -271,7 +288,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .setTitle(title)
             .setView(frame)
             .setPositiveButton(button) { _, _ ->
+                val old = plan.name
                 plan.name = input.text.toString().trim().ifBlank { plan.name }
+                if (plan.name != old) AppLog.i("Renamed plan '$old' -> '${plan.name}'")
                 PlanStorage.autosave(this, plan)
                 updateUi()
                 then()
@@ -283,11 +302,17 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     private fun save(share: Boolean) {
         val snapshot = plan.copy()
         Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
+        AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³" + if (share) " (then share)" else "")
         thread {
+            val start = System.currentTimeMillis()
             val result = runCatching {
-                PlanStorage.saveJson(this, snapshot)
-                PlanStorage.saveJpg(this, snapshot)
+                PlanStorage.saveJson(this, snapshot).also { AppLog.i("Wrote JSON $it") }
+                PlanStorage.saveJpg(this, snapshot).also { AppLog.i("Wrote JPG $it") }
             }
+            result.onSuccess { AppLog.i("Save finished in ${System.currentTimeMillis() - start} ms") }
+                .onFailure { AppLog.e("Save failed", it) }
+            // Written last, so it records how the save went - even a failed one.
+            runCatching { PlanStorage.saveLog(this, snapshot) }.onFailure { AppLog.e("Could not write log file", it) }
             runOnUiThread {
                 result.onSuccess { jpg ->
                     if (share) shareJpg(jpg)
@@ -295,7 +320,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                         val base = PlanStorage.fileBase(snapshot.name)
                         MaterialAlertDialogBuilder(this)
                             .setTitle("Saved")
-                            .setMessage("${PlanStorage.JSON_DIR}$base.json\n${PlanStorage.JPG_DIR}$base.jpg")
+                            .setMessage("${PlanStorage.JSON_DIR}$base.json\n${PlanStorage.JSON_DIR}$base-log.txt\n${PlanStorage.JPG_DIR}$base.jpg")
                             .setPositiveButton("OK", null)
                             .setNeutralButton("Share JPG") { _, _ -> shareJpg(jpg) }
                             .show()
@@ -317,13 +342,37 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         startActivity(Intent.createChooser(send, "Share plan"))
     }
 
+    private fun shareLog() {
+        val snapshot = plan.copy()
+        thread {
+            val result = runCatching { PlanStorage.saveLog(this, snapshot) }
+            runOnUiThread {
+                result.onSuccess { uri ->
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, "Energy Plan log - ${snapshot.name}")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(send, "Share log"))
+                }.onFailure {
+                    AppLog.e("Share log failed", it)
+                    Toast.makeText(this, "Couldn't write log: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     private fun openPlan(uri: Uri) {
+        AppLog.i("Opening $uri")
         try {
             val loaded = Plan.fromJson(PlanStorage.readText(this, uri))
+            AppLog.i("Opened '${loaded.name}' with ${loaded.rooms.size} rooms")
             pushUndo()
             setPlan(loaded)
             PlanStorage.autosave(this, plan)
         } catch (e: Exception) {
+            AppLog.e("Open failed for $uri", e)
             MaterialAlertDialogBuilder(this)
                 .setTitle("Can't open that file")
                 .setMessage("It doesn't look like an Energy Plan JSON file.\n\n${e.message}")
@@ -337,6 +386,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .setTitle("Start a new plan?")
             .setMessage("The current plan stays on screen until you confirm. Unsaved changes can still be brought back with Undo.")
             .setPositiveButton("New plan") { _, _ ->
+                AppLog.i("New plan (previous '${plan.name}' had ${plan.rooms.size} rooms)")
                 pushUndo()
                 setPlan(Plan())
                 PlanStorage.autosave(this, plan)
