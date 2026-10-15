@@ -10,11 +10,13 @@ works out each room's floor area and volume, plus the totals.
 
 ## Using it
 
-- **Draw a room:** drag on the grid. The new room's corners snap to nearby
-  walls of existing rooms (or to a 5 cm grid), so adjoining rooms line up.
-  When you lift your finger, enter the room's name and exact sizes in metres.
-- **Add a room from the keyboard:** tap **+ Room** and type the sizes. It is
-  placed to the right of the existing rooms; drag it into position.
+- **Add a room:** tap **+ Room** and type its name and exact sizes in metres.
+  It is placed to the right of the existing rooms; drag it into position.
+- **Draw a room with one finger (optional):** turn on **⋮ → Settings… → One
+  finger create room: Yes**, then drag on the grid. The new room's corners snap
+  to nearby walls of existing rooms (or to a 5 cm grid), and when you lift your
+  finger you enter the exact sizes. It's off by default because it's easy to
+  create rooms by accident; with it off, a one-finger drag pans the plan.
 - **Select:** tap a room. **Move:** drag the selected room; its walls snap to
   neighbouring walls.
 - **Edit sizes:** double-tap a room, or select it and tap **Edit**.
@@ -26,7 +28,8 @@ works out each room's floor area and volume, plus the totals.
   inside it, and the large room's area excludes the WC.
 - **Delete:** select a room and tap **Delete**. **Undo** reverses the last
   change (up to 50 steps).
-- **Pan and zoom:** use two fingers. **Fit** zooms to show the whole plan.
+- **Pan and zoom:** use two fingers (or one finger on empty space, when
+  one-finger drawing is off). **Fit** zooms to show the whole plan.
 - The ceiling height you last entered is used as the default for the next room.
 - The plan on screen is saved automatically after every change, so it survives
   closing the app.
@@ -87,6 +90,9 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.3** — One-finger drawing is now a setting (**⋮ → Settings…**), off by
+  default: a one-finger drag pans instead of creating a room. Fixed the ⋮ menu's
+  white-on-light text.
 - **v1.2** — App log: saved as `<name>-log.txt` next to the JSON, **Share
   log** menu item, and crashes are recorded with their stack trace.
 - **v1.1** — Overlapping rooms: **Send to back** / **Bring to front**, and the

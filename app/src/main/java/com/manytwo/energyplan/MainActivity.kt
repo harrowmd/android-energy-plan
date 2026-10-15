@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         plan = PlanStorage.loadAutosave(this) ?: Plan()
         AppLog.i("Opened plan '${plan.name}' with ${plan.rooms.size} rooms, ${fmtM(plan.totalArea)} m²")
         b.planView.listener = this
+        b.planView.oneFingerDraw = prefs.getBoolean(PREF_ONE_FINGER_DRAW, false)
         b.planView.plan = plan
 
         b.addButton.setOnClickListener { addRoomFromKeyboard() }
@@ -81,6 +82,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
             R.id.action_rename -> askName("Rename plan", "Rename") {}
             R.id.action_new -> confirmNewPlan()
+            R.id.action_settings -> showSettings()
             R.id.action_about -> showAbout()
             else -> return super.onOptionsItemSelected(item)
         }
@@ -261,10 +263,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                     heading, fmtM(room.width), fmtM(room.depth), fmtM(room.height), fmtM(net), fmtM(plan.netVolume(room)),
                 )
             }
-            plan.rooms.isEmpty() -> "Drag on the grid to draw a room.\nTwo fingers to pan and zoom."
+            plan.rooms.isEmpty() && b.planView.oneFingerDraw -> "Drag on the grid to draw a room.\nTwo fingers to pan and zoom."
+            plan.rooms.isEmpty() -> "Tap + Room to add a room.\nDrag to pan · pinch to zoom."
             else -> String.format(
-                Locale.UK, "%d rooms  ·  %s m²  ·  %s m³\nTap: select · drag: move · double-tap: edit",
+                Locale.UK, "%d rooms  ·  %s m²  ·  %s m³\n%s",
                 plan.rooms.size, fmtArea(plan.totalArea), fmtArea(plan.totalVolume),
+                if (b.planView.oneFingerDraw) "Drag: draw · tap: select · drag selected: move" else "Drag: pan · tap: select · drag selected: move",
             )
         }
         b.editButton.isEnabled = room != null
@@ -395,6 +399,23 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .show()
     }
 
+    private fun showSettings() {
+        val options = arrayOf("No (default) – one finger pans the plan", "Yes – one-finger drag draws a room")
+        var choice = if (b.planView.oneFingerDraw) 1 else 0
+        MaterialAlertDialogBuilder(this)
+            .setTitle("One finger create room")
+            .setSingleChoiceItems(options, choice) { _, which -> choice = which }
+            .setPositiveButton("OK") { _, _ ->
+                val on = choice == 1
+                if (on != b.planView.oneFingerDraw) AppLog.i("Setting: one-finger create room = ${if (on) "Yes" else "No"}")
+                b.planView.oneFingerDraw = on
+                prefs.edit().putBoolean(PREF_ONE_FINGER_DRAW, on).apply()
+                updateUi()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun showAbout() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Energy Plan ${BuildConfig.VERSION_NAME}")
@@ -405,5 +426,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             )
             .setPositiveButton("OK", null)
             .show()
+    }
+
+    companion object {
+        private const val PREF_ONE_FINGER_DRAW = "oneFingerDraw"
     }
 }

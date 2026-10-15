@@ -20,7 +20,8 @@ import kotlin.math.round
 
 /**
  * The drawing surface.
- *  - Drag on empty space (or on a room that isn't selected) to draw a new room.
+ *  - One finger on empty space (or on a room that isn't selected) pans the
+ *    plan - or, with [oneFingerDraw] on, drags out a new room.
  *  - Tap a room to select it (the top one, where rooms overlap); drag the selected room to move it.
  *  - Double-tap a room to edit its sizes.
  *  - Two fingers pan and pinch-zoom.
@@ -37,6 +38,9 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     }
 
     var listener: Listener? = null
+
+    /** Off by default: one-finger drawing made it too easy to create rooms by accident. */
+    var oneFingerDraw = false
 
     var plan: Plan = Plan()
         set(value) {
@@ -57,7 +61,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     private var offY = 24f * d
     private var fitted = false
 
-    private enum class Mode { IDLE, DRAW, MOVE, PINCH }
+    private enum class Mode { IDLE, DRAW, MOVE, PAN, PINCH }
 
     private var mode = Mode.IDLE
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -199,6 +203,13 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 Mode.IDLE -> if (hypot(e.x - downX, e.y - downY) > touchSlop) startDrag(e)
                 Mode.DRAW -> updateDraft(e.x, e.y)
                 Mode.MOVE -> updateMove(e.x, e.y)
+                Mode.PAN -> {
+                    offX += e.x - lastFocusX
+                    offY += e.y - lastFocusY
+                    lastFocusX = e.x
+                    lastFocusY = e.y
+                    invalidate()
+                }
             }
 
             MotionEvent.ACTION_UP -> {
@@ -229,6 +240,10 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             moveOrigY = r.y
             listener?.onBeforeMove()
             updateMove(e.x, e.y)
+        } else if (!oneFingerDraw) {
+            mode = Mode.PAN
+            lastFocusX = e.x
+            lastFocusY = e.y
         } else {
             mode = Mode.DRAW
             draftX0 = snapCoord(wx(downX), xLines(null))
