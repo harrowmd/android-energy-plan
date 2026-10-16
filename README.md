@@ -92,6 +92,8 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.4.2** — A drag that snaps a room back to where it started no longer
+  adds an Undo step or a "Moved" log line.
 - **v1.4.1** — The toolbar grows to fit the plan name, which was cut off on
   tablets with larger toolbar text.
 - **v1.4** — **Bring forward** / **Send backward**: one step at a time, past

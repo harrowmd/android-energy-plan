@@ -116,15 +116,24 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     override fun onEditRequested(room: Room) = editRoom(room)
 
-    private var moveStart = ""
+    private var moveStart: Pair<Double, Double>? = null
 
     override fun onBeforeMove() {
         pushUndo()
-        moveStart = plan.room(b.planView.selectedId)?.let { "(${fmtM(it.x)}, ${fmtM(it.y)})" } ?: "?"
+        moveStart = plan.room(b.planView.selectedId)?.let { it.x to it.y }
     }
 
     override fun onRoomMoved() {
-        plan.room(b.planView.selectedId)?.let { AppLog.i("Moved '${it.name}' from $moveStart to (${fmtM(it.x)}, ${fmtM(it.y)})") }
+        val r = plan.room(b.planView.selectedId) ?: return changed()
+        val start = moveStart
+        if (start != null && start == (r.x to r.y)) {
+            // Snapped back to where it started: nothing to log or undo.
+            undoStack.removeLastOrNull()
+            invalidateOptionsMenu()
+            return
+        }
+        val from = start?.let { "(${fmtM(it.first)}, ${fmtM(it.second)})" } ?: "?"
+        AppLog.i("Moved '${r.name}' from $from to (${fmtM(r.x)}, ${fmtM(r.y)})")
         changed()
     }
 
