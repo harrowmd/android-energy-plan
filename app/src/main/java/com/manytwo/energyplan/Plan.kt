@@ -36,13 +36,15 @@ data class Room(
 class Plan(
     var name: String = "Untitled plan",
     val rooms: MutableList<Room> = mutableListOf(),
+    /** Walls the user has changed, by [wallKey]; every other wall gets its automatic type. */
+    val wallOverrides: MutableMap<String, WallSpec> = mutableMapOf(),
 ) {
     val totalArea get() = rooms.sumOf { netArea(it) }
     val totalVolume get() = rooms.sumOf { netVolume(it) }
 
     fun room(id: Long?) = rooms.firstOrNull { it.id == id }
     fun nextId() = (rooms.maxOfOrNull { it.id } ?: 0L) + 1
-    fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList())
+    fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList(), wallOverrides.toMutableMap())
 
     private fun overlaps(a: Room, b: Room) =
         a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.depth && a.y + a.depth > b.y
@@ -139,9 +141,12 @@ class Plan(
     }
 
     fun toJson(): String {
+        pruneWallOverrides()
+        val layout = wallLayout()
         val roomArray = JSONArray()
         for (r in rooms) {
             roomArray.put(JSONObject().apply {
+                put("id", r.id)
                 put("name", r.name)
                 put("x", r.x)
                 put("y", r.y)
@@ -155,29 +160,62 @@ class Plan(
         }
         return JSONObject().apply {
             put("format", FORMAT)
-            put("formatVersion", 1)
+            put("formatVersion", 2)
             put("name", name)
             put("units", "m")
             put("saved", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.UK).format(Date()))
             put("totalArea", round3(totalArea))
             put("totalVolume", round3(totalVolume))
             put("rooms", roomArray)
+            put("walls", JSONArray().apply { for (w in layout.walls) put(wallJson(w)) })
+            put("wallTotals", JSONArray().apply {
+                for ((type, thickness, length) in layout.totals()) put(JSONObject().apply {
+                    put("type", type.label)
+                    put("thickness", thickness)
+                    put("length", length)
+                })
+            })
+            put("wallOverrides", JSONArray().apply {
+                for ((key, spec) in wallOverrides.toSortedMap()) put(JSONObject().apply {
+                    put("key", key)
+                    put("type", spec.type.label)
+                    put("thickness", spec.thickness)
+                })
+            })
         }.toString(2)
+    }
+
+    private fun wallJson(w: Wall) = JSONObject().apply {
+        val (x1, y1, x2, y2) = w.ends.toList()
+        put("room", w.room.name)
+        put("side", w.side.label)
+        put("neighbour", w.neighbour?.name ?: JSONObject.NULL)
+        put("type", w.type.label)
+        put("thickness", w.thickness)
+        put("length", w.length)
+        put("x1", round3(x1))
+        put("y1", round3(y1))
+        put("x2", round3(x2))
+        put("y2", round3(y2))
     }
 
     companion object {
         const val FORMAT = "m21energyplan"
 
-        /** Parses a plan saved by [toJson]. Areas and volumes are derived, so they're ignored on load. */
+        /** Parses a plan saved by [toJson]. Areas, volumes and walls are derived, so they're ignored on load; only wall changes are read. */
         fun fromJson(text: String): Plan {
             val o = JSONObject(text)
             val arr = o.getJSONArray("rooms")
             val plan = Plan(o.optString("name", "Untitled plan"))
+            val ids = mutableSetOf<Long>()
             for (i in 0 until arr.length()) {
                 val r = arr.getJSONObject(i)
+                // Ids key the wall changes; version 1 files have none, so number them in order.
+                val id = r.optLong("id", i + 1L).takeIf { it > 0 && it !in ids } ?: ((ids.maxOrNull() ?: 0L) + 1)
+                ids += id
                 plan.rooms.add(
                     Room(
-                        id = i + 1L,
+                        id = id,
                         name = r.optString("name", "Room ${i + 1}"),
                         x = r.getDouble("x"),
                         y = r.getDouble("y"),
@@ -187,6 +225,13 @@ class Plan(
                     )
                 )
             }
+            val overrides = o.optJSONArray("wallOverrides")
+            for (i in 0 until (overrides?.length() ?: 0)) {
+                val w = overrides!!.getJSONObject(i)
+                val type = WallType.parse(w.optString("type")) ?: continue
+                plan.wallOverrides[w.getString("key")] = WallSpec(type, w.optDouble("thickness", type.defaultThickness))
+            }
+            plan.pruneWallOverrides()
             return plan
         }
     }

@@ -16,8 +16,8 @@ android {
         applicationId = "com.manytwo.energyplan"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.4.2"
+        versionCode = 8
+        versionName = "1.5"
 
         buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
         buildConfigField("String", "GITHUB_REPO", "\"harrowmd/android-energy-plan\"")

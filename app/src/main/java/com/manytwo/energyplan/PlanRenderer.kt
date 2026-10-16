@@ -29,10 +29,16 @@ class PlanRenderer(private val d: Float) {
     private val gridMajor = Paint().apply { color = 0xFFCFD6DB.toInt(); strokeWidth = max(1f, d * 0.75f) }
     private val fill = Paint().apply { color = 0xFFE8F5E9.toInt() }
     private val fillSelected = Paint().apply { color = 0xFFFFF3D6.toInt() }
-    private val wall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF263238.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f * d
+    /** The room's inner face; the walls themselves are drawn outside it by [drawWalls]. */
+    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF263238.toInt(); style = Paint.Style.STROKE; strokeWidth = 1f * d
     }
-    private val wallSelected = Paint(wall).apply { color = 0xFFE67E00.toInt(); strokeWidth = 3.5f * d }
+    private val selectedLine = Paint(outline).apply { color = 0xFFE67E00.toInt(); strokeWidth = 3.5f * d }
+    private val wallFill = Paint()
+    private val wallHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF000000.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f * d
+        pathEffect = DashPathEffect(floatArrayOf(6f * d, 4f * d), 0f)
+    }
     private val draftFill = Paint().apply { color = 0x332E7D32 }
     private val draftLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF2E7D32.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f * d
@@ -82,15 +88,20 @@ class PlanRenderer(private val d: Float) {
      * Draws [r] in its place in the stacking order. Labels go in the part of
      * the room that rooms above it don't cover, so they stay readable.
      */
-    fun drawRoom(c: Canvas, plan: Plan, r: Room, scale: Float, offX: Float, offY: Float, selected: Boolean) {
-        val rect = screenRect(r, scale, offX, offY)
-        c.drawRect(rect, if (selected) fillSelected else fill)
-        c.drawRect(rect, wall)
+    fun drawRoom(c: Canvas, plan: Plan, layout: WallLayout, r: Room, scale: Float, offX: Float, offY: Float, selected: Boolean) {
+        val full = screenRect(r, scale, offX, offY)
+        c.drawRect(full, if (selected) fillSelected else fill)
+        c.drawRect(full, outline)
+
+        // Labels keep clear of shared walls, which are drawn half inside the room.
+        fun inset(side: Side) = (layout.intrusion(r, side) * scale).toFloat()
+        val rect = RectF(full.left + inset(Side.LEFT), full.top + inset(Side.TOP), full.right - inset(Side.RIGHT), full.bottom - inset(Side.BOTTOM))
 
         val covers = plan.roomsAbove(r).map { screenRect(it, scale, offX, offY) }
-        val visible = plan.visibleRects(r).map {
+        val visible = plan.visibleRects(r).mapNotNull {
             RectF(offX + (it[0] * scale).toFloat(), offY + (it[1] * scale).toFloat(),
                 offX + (it[2] * scale).toFloat(), offY + (it[3] * scale).toFloat())
+                .takeIf { b -> b.intersect(rect) }
         }
         if (visible.isEmpty()) return
         val sides = drawEdgeDimensions(c, r, rect, covers)
@@ -99,10 +110,38 @@ class PlanRenderer(private val d: Float) {
 
     /** The orange outline is drawn last, so the selected room shows even if it's underneath others. */
     fun drawSelection(c: Canvas, r: Room, scale: Float, offX: Float, offY: Float) {
-        c.drawRect(screenRect(r, scale, offX, offY), wallSelected)
+        c.drawRect(screenRect(r, scale, offX, offY), selectedLine)
     }
 
-    private enum class Side { TOP, BOTTOM, LEFT, RIGHT }
+    /**
+     * Walls as solid bars in their type's colour, drawn over the rooms. Lower
+     * priority types go first, so External ends up on top where walls meet.
+     * [highlight] is the key of a wall to outline (the one being edited).
+     */
+    fun drawWalls(c: Canvas, layout: WallLayout, scale: Float, offX: Float, offY: Float, highlight: String? = null) {
+        fun screen(m: DoubleArray): RectF {
+            val rf = RectF(
+                offX + (m[0] * scale).toFloat(), offY + (m[1] * scale).toFloat(),
+                offX + (m[2] * scale).toFloat(), offY + (m[3] * scale).toFloat(),
+            )
+            // Keep thin walls visible when zoomed far out.
+            val minPx = 1.5f
+            if (rf.width() < minPx) rf.inset((rf.width() - minPx) / 2, 0f)
+            if (rf.height() < minPx) rf.inset(0f, (rf.height() - minPx) / 2)
+            return rf
+        }
+        for (w in layout.walls.sortedBy { it.type.ordinal }) {
+            wallFill.color = WallColors[w.type]
+            c.drawRect(screen(w.rect), wallFill)
+        }
+        for (k in layout.corners.sortedBy { it.type.ordinal }) {
+            wallFill.color = WallColors[k.type]
+            c.drawRect(screen(k.rect), wallFill)
+        }
+        if (highlight != null) {
+            for (w in layout.walls) if (w.key == highlight) c.drawRect(screen(w.rect).apply { inset(-3f * d, -3f * d) }, wallHighlight)
+        }
+    }
 
     /**
      * Width inside the top wall (or the bottom one if the top is covered),
@@ -222,17 +261,21 @@ class PlanRenderer(private val d: Float) {
             val rowH = 22f * d
 
             val rooms = plan.rooms
-            val minX = rooms.minOfOrNull { it.x } ?: 0.0
-            val minY = rooms.minOfOrNull { it.y } ?: 0.0
-            val bw = max((rooms.maxOfOrNull { it.x + it.width } ?: 4.0) - minX, 1.0)
-            val bh = max((rooms.maxOfOrNull { it.y + it.depth } ?: 3.0) - minY, 1.0)
+            val layout = plan.wallLayout()
+            val totals = layout.totals()
+            val bounds = plan.bounds(layout) ?: doubleArrayOf(0.0, 0.0, 4.0, 3.0)
+            val minX = bounds[0]
+            val minY = bounds[1]
+            val bw = max(bounds[2] - minX, 1.0)
+            val bh = max(bounds[3] - minY, 1.0)
             val scale = (2000.0 / max(bw, bh)).toFloat()
             val planW = (bw * scale).toFloat()
             val planH = (bh * scale).toFloat()
 
             val tableTop = headerH + planH + 2 * margin
             val hasOverlap = rooms.any { plan.netArea(it) < round3(it.area) }
-            val tableH = rowH * (rooms.size + if (hasOverlap) 3 else 2) + 12f * d
+            val wallTableH = if (totals.isEmpty()) 0f else rowH * (totals.size + 2) + 12f * d
+            val tableH = rowH * (rooms.size + if (hasOverlap) 3 else 2) + 12f * d + wallTableH
             val width = max(planW + 2 * margin, 1800f).toInt()
             val height = (tableTop + tableH + margin).toInt()
 
@@ -248,7 +291,8 @@ class PlanRenderer(private val d: Float) {
             c.clipRect(0f, headerH, width.toFloat(), tableTop)
             r.drawGrid(c, scale, offX, offY, width, height)
             c.restore()
-            for (room in rooms) r.drawRoom(c, plan, room, scale, offX, offY, false)
+            for (room in rooms) r.drawRoom(c, plan, layout, room, scale, offX, offY, false)
+            r.drawWalls(c, layout, scale, offX, offY)
 
             val title = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = 0xFF1A1A1A.toInt(); textSize = 24f * d; typeface = Typeface.DEFAULT_BOLD
@@ -270,7 +314,44 @@ class PlanRenderer(private val d: Float) {
             c.drawText("1 m", margin + scale + 6 * d, barY + 4 * d, sub)
 
             drawSchedule(c, plan, margin, tableTop, width - 2 * margin, rowH, d)
+            if (totals.isNotEmpty()) {
+                drawWallSchedule(c, totals, margin, tableTop + tableH - wallTableH + 12f * d, width - 2 * margin, rowH, d)
+            }
             return bmp
+        }
+
+        /** Total wall length by type and thickness, with each type's colour. */
+        private fun drawWallSchedule(
+            c: Canvas, totals: List<Triple<WallType, Double, Double>>,
+            left: Float, top: Float, w: Float, rowH: Float, d: Float,
+        ) {
+            val head = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF1A1A1A.toInt(); textSize = 12f * d; typeface = Typeface.DEFAULT_BOLD
+            }
+            val body = TextPaint(head).apply { color = 0xFF263238.toInt(); typeface = Typeface.DEFAULT }
+            val line = Paint().apply { color = 0xFF90A4AE.toInt(); strokeWidth = d }
+            val swatch = Paint()
+            val sw = 22f * d
+            fun row(y: Float, cells: List<String>, p: TextPaint) {
+                p.textAlign = Paint.Align.LEFT
+                c.drawText(cells[0], left + sw + 8f * d, y, p)
+                p.textAlign = Paint.Align.RIGHT
+                c.drawText(cells[1], left + w * 0.70f, y, p)
+                c.drawText(cells[2], left + w, y, p)
+            }
+            var y = top + rowH * 0.7f
+            row(y, listOf("Wall", "Thickness mm", "Length m"), head)
+            c.drawLine(left, y + rowH * 0.3f, left + w, y + rowH * 0.3f, line)
+            for ((type, thickness, length) in totals) {
+                y += rowH
+                swatch.color = WallColors[type]
+                c.drawRect(left, y - rowH * 0.55f, left + sw, y + rowH * 0.05f, swatch)
+                row(y, listOf(type.label, mm(thickness), fmtM(length)), body)
+            }
+            c.drawLine(left, y + rowH * 0.3f, left + w, y + rowH * 0.3f, line)
+            y += rowH
+            body.textAlign = Paint.Align.LEFT
+            c.drawText("Lengths are measured along the inside face of each room.", left, y, body)
         }
 
         private fun drawSchedule(c: Canvas, plan: Plan, left: Float, top: Float, w: Float, rowH: Float, d: Float) {

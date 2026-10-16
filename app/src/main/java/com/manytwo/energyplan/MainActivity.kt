@@ -1,6 +1,18 @@
 package com.manytwo.energyplan
 
 import android.content.Intent
+import android.graphics.Color
+import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import android.net.Uri
 import android.os.Bundle
 import android.view.Menu
@@ -45,6 +57,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
         WindowInsetsControllerCompat(window, b.root).isAppearanceLightStatusBars = false
 
+        WallColors.load(prefs)
         plan = PlanStorage.loadAutosave(this) ?: Plan()
         AppLog.i("Opened plan '${plan.name}' with ${plan.rooms.size} rooms, ${fmtM(plan.totalArea)} m²")
         b.planView.listener = this
@@ -137,6 +150,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         changed()
     }
 
+    override fun onWallLongPress(wall: Wall) = showWallDialog(wall)
+
     // --- rooms ---
 
     private fun addRoomFromKeyboard() {
@@ -179,6 +194,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val room = plan.room(b.planView.selectedId) ?: return
         pushUndo()
         plan.rooms.remove(room)
+        plan.pruneWallOverrides()
         AppLog.i("Deleted room ${room.describe()}")
         changed()
         b.planView.select(null)
@@ -324,6 +340,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val snapshot = plan.copy()
         Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
         AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³" + if (share) " (then share)" else "")
+        AppLog.i("Walls: " + snapshot.wallLayout().totals().joinToString { (t, th, len) -> "${t.label} ${mm(th)} mm ${fmtM(len)} m" })
         thread {
             val start = System.currentTimeMillis()
             val result = runCatching {
@@ -416,7 +433,109 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .show()
     }
 
+    // --- walls ---
+
+    /** Type and thickness of one wall; picking a type fills in its default thickness. */
+    private fun showWallDialog(wall: Wall) {
+        b.planView.highlightWall = wall.key
+        val pad = dp(24)
+        val group = RadioGroup(this)
+        val buttons = WallType.menuOrder.associateWith { t ->
+            RadioButton(this).apply {
+                id = View.generateViewId()
+                text = swatch(WallColors[t]).append("  ${t.label}  (${mm(t.defaultThickness)} mm)")
+                group.addView(this)
+            }
+        }
+        val thickness = TextInputEditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(mm(wall.thickness))
+        }
+        val thicknessLayout = TextInputLayout(this).apply {
+            hint = "Thickness (mm)"
+            addView(thickness)
+        }
+        buttons.getValue(wall.type).isChecked = true
+        group.setOnCheckedChangeListener { _, id ->
+            val t = buttons.entries.first { it.value.id == id }.key
+            thickness.setText(mm(t.defaultThickness))
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp(8), pad, 0)
+            addView(group)
+            addView(thicknessLayout)
+        }
+        val auto = if (wall.neighbour == null) WallType.EXTERNAL else WallType.INTERNAL
+        val where = wall.neighbour?.let { "Between ${wall.room.name} and ${it.name}" } ?: "${wall.room.name}, ${wall.side.label} side"
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Wall")
+            .setMessage("$where · ${fmtM(wall.length)} m long" + if (wall.custom) "" else "\nAutomatic: ${auto.label}")
+            .setView(ScrollView(this).apply { addView(body) })
+            .setPositiveButton("OK", null)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Automatic", null)
+            .setOnDismissListener { b.planView.highlightWall = null }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val type = buttons.entries.first { it.value.isChecked }.key
+                val mmValue = thickness.text.toString().trim().toIntOrNull()
+                if (mmValue == null || mmValue < 1 || mmValue > 2000) {
+                    thicknessLayout.error = "Enter a thickness in mm, e.g. 350"
+                    return@setOnClickListener
+                }
+                val spec = WallSpec(type, mmValue / 1000.0)
+                if (spec == WallSpec(wall.type, wall.thickness)) {
+                    dialog.dismiss()
+                    return@setOnClickListener
+                }
+                pushUndo()
+                // Back to automatic when it matches what the app would pick anyway.
+                if (spec == WallSpec(auto, auto.defaultThickness)) plan.wallOverrides.remove(wall.key)
+                else plan.wallOverrides[wall.key] = spec
+                AppLog.i("Wall changed: ${wall.describe()} -> ${type.label} $mmValue mm")
+                changed()
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).apply {
+                isEnabled = wall.custom
+                setOnClickListener {
+                    pushUndo()
+                    plan.wallOverrides.remove(wall.key)
+                    AppLog.i("Wall reset to automatic: ${wall.describe()}")
+                    changed()
+                    dialog.dismiss()
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun swatch(color: Int) = SpannableStringBuilder("■■").apply {
+        setSpan(ForegroundColorSpan(color), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    // --- settings ---
+
     private fun showSettings() {
+        val items = mutableListOf<CharSequence>(
+            "One finger create room: " + if (b.planView.oneFingerDraw) "Yes" else "No",
+        )
+        for (t in WallType.menuOrder) items += swatch(WallColors[t]).append("  ${t.label} wall colour")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Settings")
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which == 0) showOneFingerSetting() else pickWallColour(WallType.menuOrder[which - 1])
+            }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showOneFingerSetting() {
         val options = arrayOf("No (default) – one finger pans the plan", "Yes – one-finger drag draws a room")
         var choice = if (b.planView.oneFingerDraw) 1 else 0
         MaterialAlertDialogBuilder(this)
@@ -430,7 +549,58 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 updateUi()
             }
             .setNegativeButton("Cancel", null)
+            .setOnDismissListener { showSettings() }
             .show()
+    }
+
+    private fun pickWallColour(type: WallType) {
+        val items = PALETTE.map { (name, c) -> swatch(c).append("  $name") as CharSequence } +
+            listOf("Custom colour (#RRGGBB)…", swatch(type.defaultColor).append("  Default"))
+        var reopen = true
+        MaterialAlertDialogBuilder(this)
+            .setTitle("${type.label} wall colour")
+            .setItems(items.toTypedArray()) { _, which ->
+                when {
+                    which < PALETTE.size -> setWallColour(type, PALETTE[which].second)
+                    which == PALETTE.size -> {
+                        reopen = false
+                        customWallColour(type)
+                    }
+                    else -> setWallColour(type, type.defaultColor)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener { if (reopen) showSettings() }
+            .show()
+    }
+
+    private fun customWallColour(type: WallType) {
+        val input = EditText(this).apply {
+            setText(String.format("#%06X", WallColors[type] and 0xFFFFFF))
+            setSingleLine()
+        }
+        val frame = android.widget.FrameLayout(this).apply {
+            setPadding(dp(20), dp(10), dp(20), 0)
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("${type.label} wall colour")
+            .setView(frame)
+            .setPositiveButton("OK") { _, _ ->
+                val text = input.text.toString().trim().let { if (it.startsWith("#")) it else "#$it" }
+                val c = runCatching { Color.parseColor(text) }.getOrNull()
+                if (c == null) Toast.makeText(this, "Not a colour: $text", Toast.LENGTH_LONG).show()
+                else setWallColour(type, c or 0xFF000000.toInt())
+            }
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener { showSettings() }
+            .show()
+    }
+
+    private fun setWallColour(type: WallType, color: Int) {
+        WallColors.set(prefs, type, color)
+        AppLog.i(String.format("Setting: %s wall colour = #%06X", type.label, color and 0xFFFFFF))
+        b.planView.invalidate()
     }
 
     private fun showAbout() {
@@ -447,5 +617,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     companion object {
         private const val PREF_ONE_FINGER_DRAW = "oneFingerDraw"
+
+        private val PALETTE = listOf(
+            "Red" to 0xFFD32F2F, "Pink" to 0xFFEC407A, "Purple" to 0xFF7B1FA2, "Deep purple" to 0xFF512DA8,
+            "Indigo" to 0xFF303F9F, "Blue" to 0xFF1976D2, "Light blue" to 0xFF03A9F4, "Cyan" to 0xFF00ACC1,
+            "Teal" to 0xFF00897B, "Green" to 0xFF388E3C, "Light green" to 0xFF8BC34A, "Yellow" to 0xFFFBC02D,
+            "Orange" to 0xFFF57C00, "Brown" to 0xFF6D4C41, "Grey" to 0xFF757575, "Black" to 0xFF212121,
+        ).map { (n, c) -> n to c.toInt() }
     }
 }
