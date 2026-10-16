@@ -92,6 +92,8 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.4.1** — The toolbar grows to fit the plan name, which was cut off on
+  tablets with larger toolbar text.
 - **v1.4** — **Bring forward** / **Send backward**: one step at a time, past
   the next overlapping room. Stacking menu items grey out when they'd do nothing.
 - **v1.3** — One-finger drawing is now a setting (**⋮ → Settings…**), off by
