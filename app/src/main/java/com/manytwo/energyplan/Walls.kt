@@ -95,6 +95,11 @@ class Wall(
     /** x0, y0, x1, y1 of the wall's footprint: centred on the join, or outside the room. */
     val rect: DoubleArray
         get() {
+            // A shared wall ending at the room's corner runs on by half its thickness, so corners close up.
+            val (lo, hi) = if (side.horizontal) room.x to room.x + room.width else room.y to room.y + room.depth
+            val ext = if (neighbour != null) thickness / 2 else 0.0
+            val from = if (abs(from - lo) < EPS) from - ext else from
+            val to = if (abs(to - hi) < EPS) to + ext else to
             val out = if (side == Side.TOP || side == Side.LEFT) -1 else 1
             val (inner, outer) = if (neighbour != null) {
                 val centre = face + out * gap / 2
@@ -116,9 +121,12 @@ class Wall(
 }
 
 /** The square where two outside walls of a room meet at its corner. */
-class WallCorner(val rect: DoubleArray, val type: WallType)
+class WallCorner(val room: Room, val rect: DoubleArray, val type: WallType)
 
 class WallLayout(val walls: List<Wall>, val corners: List<WallCorner>) {
+    /** Just the walls of rooms on [floor]. */
+    fun on(floor: Floor) = WallLayout(walls.filter { it.room.floor == floor }, corners.filter { it.room.floor == floor })
+
     /** How far shared walls reach into [r] across its [side], so its labels can keep clear. */
     fun intrusion(r: Room, side: Side): Double {
         val face = when (side) {
@@ -157,7 +165,8 @@ fun mm(m: Double) = Math.round(m * 1000).toString()
  * Works out every wall of the plan. Each side of each room is first cut back
  * to the part no room above it covers, then split by what lies beyond it:
  * the nearest room within [MAX_WALL_GAP] makes that stretch a shared Internal wall,
- * anything else is External. The user's changes in [Plan.wallOverrides] then
+ * anything else is External. There's no wall between two unallocated
+ * spaces. The user's changes in [Plan.wallOverrides] then
  * replace the automatic type and thickness.
  */
 fun Plan.wallLayout(): WallLayout {
@@ -186,6 +195,7 @@ fun Plan.wallLayout(): WallLayout {
             val x0 = if (v == Side.LEFT) x - vw.thickness else x
             val y0 = if (h == Side.TOP) y - hw.thickness else y
             corners += WallCorner(
+                r,
                 doubleArrayOf(x0, y0, x0 + vw.thickness, y0 + hw.thickness),
                 if (hw.type.ordinal >= vw.type.ordinal) hw.type else vw.type,
             )
@@ -193,8 +203,10 @@ fun Plan.wallLayout(): WallLayout {
     }
 
     // A wall between two rooms is found from both sides; keep the lower room's copy.
+    // Between two unallocated spaces there's no wall; a room next to one keeps its wall.
     val walls = all.filter { w ->
         val n = w.neighbour ?: return@filter true
+        if (w.room.unallocated && n.unallocated) return@filter false
         val twin = all.any { it.room === n && it.neighbour === w.room && it.key == w.key }
         !twin || rooms.indexOf(w.room) < rooms.indexOf(n)
     }
@@ -219,11 +231,16 @@ fun Plan.pruneWallOverrides() {
     }
 }
 
-/** Plan extent including wall thickness: x0, y0, x1, y1, or null for an empty plan. */
-fun Plan.bounds(layout: WallLayout = wallLayout()): DoubleArray? {
-    if (rooms.isEmpty()) return null
-    val rects = rooms.map { doubleArrayOf(it.x, it.y, it.x + it.width, it.y + it.depth) } +
-        layout.walls.map { it.rect } + layout.corners.map { it.rect }
+/**
+ * Plan extent including wall thickness: x0, y0, x1, y1, or null for an empty
+ * plan. With [floor], just that floor's rooms and walls.
+ */
+fun Plan.bounds(layout: WallLayout = wallLayout(), floor: Floor? = null): DoubleArray? {
+    val rs = if (floor == null) rooms else rooms(floor)
+    if (rs.isEmpty()) return null
+    val rects = rs.map { doubleArrayOf(it.x, it.y, it.x + it.width, it.y + it.depth) } +
+        layout.walls.filter { floor == null || it.room.floor == floor }.map { it.rect } +
+        layout.corners.filter { floor == null || it.room.floor == floor }.map { it.rect }
     return doubleArrayOf(rects.minOf { it[0] }, rects.minOf { it[1] }, rects.maxOf { it[2] }, rects.maxOf { it[3] })
 }
 
@@ -259,7 +276,7 @@ private fun Plan.neighbourSpans(r: Room, side: Side, a: Double, b: Double): List
 
     val cands = mutableListOf<Candidate>()
     for ((i, n) in rooms.withIndex()) {
-        if (n === r) continue
+        if (n === r || n.floor != r.floor) continue
         val gap = when (side) {
             Side.TOP -> if (n.y < r.y - EPS && n.y + n.depth > r.y - MAX_WALL_GAP) r.y - (n.y + n.depth) else null
             Side.BOTTOM -> (r.y + r.depth).let { e -> if (n.y + n.depth > e + EPS && n.y < e + MAX_WALL_GAP) n.y - e else null }

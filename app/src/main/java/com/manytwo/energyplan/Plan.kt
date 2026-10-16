@@ -7,6 +7,30 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.round
 
+/** Which part of the building a room is in: the main house, one of up to four extensions, or a conservatory. */
+enum class BuildingPart(val label: String) {
+    MAIN("Main"), EXT1("Ext1"), EXT2("Ext2"), EXT3("Ext3"), EXT4("Ext4"), CONSERVATORY("Conservatory");
+
+    companion object {
+        fun parse(s: String?) = entries.firstOrNull { it.label.equals(s, true) || it.name.equals(s, true) }
+    }
+}
+
+/** The storey a room is on. Rooms on different floors never overlap or share walls. */
+enum class Floor(val label: String) {
+    BASEMENT("Basement"), GROUND("Ground"), FIRST("1st"), SECOND("2nd"), THIRD("3rd"),
+    FOURTH("4th"), FIFTH("5th"), SIXTH("6th"), SEVENTH("7th");
+
+    val above get() = entries.getOrNull(ordinal + 1)
+
+    /** "Ground floor", "1st floor"; the basement is just "Basement". */
+    val title get() = if (this == BASEMENT) label else "$label floor"
+
+    companion object {
+        fun parse(s: String?) = entries.firstOrNull { it.label.equals(s, true) || it.name.equals(s, true) }
+    }
+}
+
 /**
  * One rectangular room. All sizes are in metres. x/y is the top-left corner
  * on the plan; width runs along x, depth along y, and height is the
@@ -20,6 +44,13 @@ data class Room(
     var width: Double,
     var depth: Double,
     var height: Double,
+    var part: BuildingPart = BuildingPart.MAIN,
+    var floor: Floor = Floor.GROUND,
+    /**
+     * A deleted room whose space is kept: it still shapes the walls exactly as
+     * before, but isn't a room - it's left out of every area and volume total.
+     */
+    var unallocated: Boolean = false,
 ) {
     val area get() = width * depth
     val volume get() = width * depth * height
@@ -39,15 +70,34 @@ class Plan(
     /** Walls the user has changed, by [wallKey]; every other wall gets its automatic type. */
     val wallOverrides: MutableMap<String, WallSpec> = mutableMapOf(),
 ) {
-    val totalArea get() = rooms.sumOf { netArea(it) }
-    val totalVolume get() = rooms.sumOf { netVolume(it) }
+    /** Rooms that count: everything except unallocated space. */
+    val allocated get() = rooms.filter { !it.unallocated }
+
+    val totalArea get() = allocated.sumOf { netArea(it) }
+    val totalVolume get() = allocated.sumOf { netVolume(it) }
+    val unallocatedArea get() = rooms.filter { it.unallocated }.sumOf { netArea(it) }
+
+    fun rooms(floor: Floor) = rooms.filter { it.floor == floor }
+
+    /** Floors that have rooms, lowest first. */
+    fun floors() = rooms.map { it.floor }.distinct().sorted()
+
+    /** (floor, rooms, net area, net volume) for each floor in use, lowest first. */
+    fun floorTotals() = allocated.groupBy { it.floor }.toSortedMap().map { (floor, rs) ->
+        FloorTotal(floor, rs.size, round3(rs.sumOf { netArea(it) }), round3(rs.sumOf { netVolume(it) }))
+    }
+
+    /** (part, rooms, net area, net volume) for each building part in use, Main first. */
+    fun partTotals() = allocated.groupBy { it.part }.toSortedMap().map { (part, rs) ->
+        PartTotal(part, rs.size, round3(rs.sumOf { netArea(it) }), round3(rs.sumOf { netVolume(it) }))
+    }
 
     fun room(id: Long?) = rooms.firstOrNull { it.id == id }
     fun nextId() = (rooms.maxOfOrNull { it.id } ?: 0L) + 1
     fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList(), wallOverrides.toMutableMap())
 
     private fun overlaps(a: Room, b: Room) =
-        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.depth && a.y + a.depth > b.y
+        a.floor == b.floor && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.depth && a.y + a.depth > b.y
 
     /** Rooms stacked above [r] that actually overlap it. */
     fun roomsAbove(r: Room): List<Room> {
@@ -61,6 +111,27 @@ class Plan(
         val i = rooms.indexOf(r)
         if (i <= 0) return emptyList()
         return rooms.subList(0, i).filter { overlaps(it, r) }.reversed()
+    }
+
+    /**
+     * Copies every room of [part] on [from] to floor [to] (the one above, or
+     * the basement), with new ids and the same layout, and returns the copies.
+     * Wall changes between the copied rooms (or on their outside walls) are
+     * copied too.
+     */
+    fun copyPart(part: BuildingPart, from: Floor, to: Floor): List<Room> {
+        val originals = rooms.filter { it.part == part && it.floor == from }
+        var next = nextId()
+        val ids = originals.associate { it.id to next++ }
+        val copies = originals.map { it.copy(id = ids.getValue(it.id), floor = to) }
+        rooms += copies
+        for ((key, spec) in wallOverrides.toMap()) {
+            val (pair, side) = key.split(':')
+            val newIds = pair.split('-').map { ids[it.toLongOrNull()] }
+            if (newIds.any { it == null }) continue
+            wallOverrides["${newIds.joinToString("-")}:$side"] = spec
+        }
+        return copies
     }
 
     fun canBringForward(r: Room) = roomsAbove(r).isNotEmpty()
@@ -148,6 +219,9 @@ class Plan(
             roomArray.put(JSONObject().apply {
                 put("id", r.id)
                 put("name", r.name)
+                put("floor", r.floor.label)
+                put("buildingPart", r.part.label)
+                put("unallocated", r.unallocated)
                 put("x", r.x)
                 put("y", r.y)
                 put("width", r.width)
@@ -166,7 +240,24 @@ class Plan(
             put("saved", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.UK).format(Date()))
             put("totalArea", round3(totalArea))
             put("totalVolume", round3(totalVolume))
+            put("unallocatedArea", round3(unallocatedArea))
             put("rooms", roomArray)
+            put("floorTotals", JSONArray().apply {
+                for (t in floorTotals()) put(JSONObject().apply {
+                    put("floor", t.floor.label)
+                    put("rooms", t.rooms)
+                    put("area", t.area)
+                    put("volume", t.volume)
+                })
+            })
+            put("partTotals", JSONArray().apply {
+                for (t in partTotals()) put(JSONObject().apply {
+                    put("buildingPart", t.part.label)
+                    put("rooms", t.rooms)
+                    put("area", t.area)
+                    put("volume", t.volume)
+                })
+            })
             put("walls", JSONArray().apply { for (w in layout.walls) put(wallJson(w)) })
             put("wallTotals", JSONArray().apply {
                 for ((type, thickness, length) in layout.totals()) put(JSONObject().apply {
@@ -187,8 +278,11 @@ class Plan(
 
     private fun wallJson(w: Wall) = JSONObject().apply {
         val (x1, y1, x2, y2) = w.ends.toList()
+        put("floor", w.room.floor.label)
+        put("roomId", w.room.id)
         put("room", w.room.name)
         put("side", w.side.label)
+        put("neighbourId", w.neighbour?.id ?: JSONObject.NULL)
         put("neighbour", w.neighbour?.name ?: JSONObject.NULL)
         put("type", w.type.label)
         put("thickness", w.thickness)
@@ -222,6 +316,9 @@ class Plan(
                         width = r.getDouble("width"),
                         depth = r.getDouble("depth"),
                         height = r.optDouble("height", DEFAULT_HEIGHT),
+                        part = BuildingPart.parse(r.optString("buildingPart")) ?: BuildingPart.MAIN,
+                        floor = Floor.parse(r.optString("floor")) ?: Floor.GROUND,
+                        unallocated = r.optBoolean("unallocated", false),
                     )
                 )
             }
@@ -236,6 +333,10 @@ class Plan(
         }
     }
 }
+
+data class FloorTotal(val floor: Floor, val rooms: Int, val area: Double, val volume: Double)
+
+data class PartTotal(val part: BuildingPart, val rooms: Int, val area: Double, val volume: Double)
 
 const val DEFAULT_HEIGHT = 2.4
 

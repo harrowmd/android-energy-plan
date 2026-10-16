@@ -75,4 +75,4 @@ object AppLog {
 }
 
 fun Room.describe() =
-    "'$name' ${fmtM(width)}×${fmtM(depth)}×${fmtM(height)} m at (${fmtM(x)}, ${fmtM(y)})"
+    (if (unallocated) "unallocated " else "") + "'$name' (${part.label}) ${fmtM(width)}×${fmtM(depth)}×${fmtM(height)} m at (${fmtM(x)}, ${fmtM(y)})"

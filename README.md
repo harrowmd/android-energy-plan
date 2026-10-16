@@ -17,9 +17,24 @@ works out each room's floor area and volume, plus the totals.
   to nearby edges of existing rooms (or to a 10 cm grid), and when you lift your
   finger you enter the exact sizes. It's off by default because it's easy to
   create rooms by accident; with it off, a one-finger drag pans the plan.
-- **Select:** tap a room. **Move:** drag the selected room; its edges snap to
+- **Select:** long-press a room (a short tap doesn't select, so it can't happen by accident; a tap on empty space clears the selection). **Move:** keep holding and drag, or drag the selected room; its edges snap to
   neighbouring rooms' edges (or the 10 cm grid).
 - **Edit sizes:** double-tap a room, or select it and tap **Edit**.
+- **Floors:** every room is on a floor: **Basement**, **Ground** or **1st**–
+  **7th**. The screen shows one floor at a time; tap the floor name in the
+  toolbar to switch. The nearest other floor is drawn as faint dashed outlines
+  to line rooms up against (room edges snap to it too). New rooms go on the
+  floor shown; change a room's floor in its dialog. Rooms on different floors
+  never overlap or share walls. The JPG draws each floor separately.
+- **Add floor:** select any room and use **⋮ → Add floor**: every room in
+  that room's building part on that floor is copied to the floor above, same
+  sizes and positions (and any wall changes between them). Rename and resize
+  them there. One Undo removes the whole copy. From the ground floor,
+  **⋮ → Add basement** does the same, copying the part down into the Basement.
+- **Building part:** every room belongs to **Main** or an extension,
+  **Ext1**–**Ext4**, or a **Conservatory**, chosen with the buttons in the room dialog. New
+  rooms start in the part you used last. Rooms outside Main show their part
+  on the plan, and the JPG and JSON give totals for each part.
 - **Overlapping rooms:** a room drawn later sits on top. Where rooms overlap,
   the overlap belongs to the room on top: the room underneath shows (and
   exports) its area and volume minus the covered part, and the totals don't
@@ -46,7 +61,12 @@ works out each room's floor area and volume, plus the totals.
 
   The colour for each type can be changed in **⋮ → Settings…**. All the
   outside stretches on one side of a room share one setting.
-- **Delete:** select a room and tap **Delete**. **Undo** reverses the last
+- **Delete:** select a room and tap **Delete**, then choose **Delete
+  completely** (the room and its walls go) or **Make unallocated**: the space
+  and its outside walls stay exactly as they are (there's no wall between
+  two unallocated spaces, but rooms next to one keep theirs). It's shown as
+  plain grey hatching and left out of all area and volume totals. Delete on
+  an unallocated space removes it completely or restores the room. **Undo** reverses the last
   change (up to 50 steps).
 - **Pan and zoom:** use two fingers (or one finger on empty space, when
   one-finger drawing is off). **Fit** zooms to show the whole plan.
@@ -86,11 +106,14 @@ The JSON format:
   "totalArea": 27.5,
   "totalVolume": 66.0,
   "rooms": [
-    { "id": 1, "name": "Kitchen", "x": 0, "y": 0, "width": 4.2, "depth": 3.1,
+    { "id": 1, "name": "Kitchen", "floor": "Ground", "buildingPart": "Main", "x": 0, "y": 0, "width": 4.2, "depth": 3.1,
       "height": 2.4, "grossArea": 13.02, "area": 13.02, "volume": 31.248 }
   ],
+  "floorTotals": [ { "floor": "Ground", "rooms": 1, "area": 13.02, "volume": 31.248 } ],
+  "partTotals": [ { "buildingPart": "Main", "rooms": 1, "area": 13.02, "volume": 31.248 } ],
   "walls": [
-    { "room": "Kitchen", "side": "top", "neighbour": null, "type": "External",
+    { "floor": "Ground", "roomId": 1, "room": "Kitchen", "side": "top",
+      "neighbourId": null, "neighbour": null, "type": "External",
       "thickness": 0.35, "length": 4.2, "x1": 0, "y1": 0, "x2": 4.2, "y2": 0 }
   ],
   "wallTotals": [ { "type": "External", "thickness": 0.35, "length": 14.6 } ],
@@ -103,8 +126,16 @@ in stacking order (bottom first). `grossArea` is width × depth; `area` and
 `volume` exclude any part covered by rooms higher in the list. All three are
 included for convenience and recalculated on load.
 
-`walls` lists every run of wall: the room it bounds, which side, the room on
-the other side (`null` for none), its type, thickness and length in metres,
+`unallocated` is `true` for space kept from a deleted room: it shapes the
+walls as before but isn't counted in any total (`unallocatedArea` gives its
+area). `floor` is `Basement`, `Ground`, `1st` … `7th` (rooms in older files open on
+`Ground`); `floorTotals` gives the rooms, net area and volume of each floor in
+use. `buildingPart` is `Main`, `Ext1`, `Ext2`, `Ext3`, `Ext4` or `Conservatory` (rooms in older
+files open as `Main`); `partTotals` gives the number of rooms and the net area
+and volume of each part in use.
+
+`walls` lists every run of wall: its floor, the room it bounds (id and name),
+which side, the room on the other side (id and name, `null` for none), its type, thickness and length in metres,
 and its end points along the room's inside face. A wall shared by two rooms is
 listed once. `wallTotals` adds up the lengths per type and thickness.
 `wallOverrides` holds the walls you changed, keyed by room `id`; it's the only
@@ -123,6 +154,12 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.6** — Floors (Basement, Ground, 1st–7th), shown one at a time with
+  the floor below as dashed outlines; **Add floor** / **Add basement** copy a
+  building part to another floor. Building parts (Main, Ext1–Ext4,
+  Conservatory). Totals per floor and per part in the JPG and JSON. Delete can
+  leave a room's space as unallocated (hatched, not counted). Rooms are
+  selected with a long-press. Wall entries in the JSON carry floor and room ids.
 - **v1.5** — Wall types: External, Internal, Sheltered, Party, Stud and
   Glazing, each with a default thickness and a colour you can change in
   Settings. Long-press a wall to change it. Walls are listed in the JSON and

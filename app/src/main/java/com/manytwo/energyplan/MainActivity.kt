@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         b.planView.listener = this
         b.planView.oneFingerDraw = prefs.getBoolean(PREF_ONE_FINGER_DRAW, false)
         b.planView.plan = plan
+        b.planView.floor = startFloor(plan, Floor.parse(prefs.getString(PREF_VIEW_FLOOR, null)))
 
         b.addButton.setOnClickListener { addRoomFromKeyboard() }
         b.editButton.setOnClickListener { plan.room(b.planView.selectedId)?.let { editRoom(it) } }
@@ -76,11 +77,22 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_floor).title = b.planView.floor.label
         menu.findItem(R.id.action_undo).isEnabled = undoStack.isNotEmpty()
         // Each stacking action is only offered when it would change something.
         val room = plan.room(b.planView.selectedId)
         val up = room != null && plan.canBringForward(room)
         val down = room != null && plan.canSendBackward(room)
+        menu.findItem(R.id.action_add_floor).apply {
+            val above = room?.floor?.above
+            isEnabled = above != null
+            title = if (room != null && above != null) "Add floor: copy ${room.part.label} to ${above.title}" else "Add floor… (select a room)"
+        }
+        // Only offered from the ground floor, where the basement is the floor below.
+        menu.findItem(R.id.action_add_basement).apply {
+            isVisible = room?.floor == Floor.GROUND
+            title = if (room != null) "Add basement: copy ${room.part.label} to Basement" else "Add basement"
+        }
         menu.findItem(R.id.action_bring_forward).isEnabled = up
         menu.findItem(R.id.action_bring_front).isEnabled = up
         menu.findItem(R.id.action_send_backward).isEnabled = down
@@ -90,8 +102,11 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
+            R.id.action_floor -> chooseFloor()
             R.id.action_undo -> undo()
             R.id.action_fit -> b.planView.fitToPlan()
+            R.id.action_add_floor -> plan.room(b.planView.selectedId)?.floor?.above?.let { addFloor(it) }
+            R.id.action_add_basement -> addFloor(Floor.BASEMENT)
             R.id.action_bring_forward -> restack { plan.bringForward(it) }
             R.id.action_bring_front -> restack { plan.bringToFront(it) }
             R.id.action_send_backward -> restack { plan.sendBackward(it) }
@@ -112,11 +127,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     // --- PlanView.Listener ---
 
     override fun onRoomDrawn(x: Double, y: Double, width: Double, depth: Double) {
-        val draft = Room(plan.nextId(), "Room ${plan.rooms.size + 1}", x, y, width, depth, lastHeight())
+        val draft = Room(plan.nextId(), "Room ${plan.rooms.size + 1}", x, y, width, depth, lastHeight(), lastPart(), b.planView.floor)
         showRoomDialog("New room", draft, onDismiss = { b.planView.clearDraft() }) { room ->
             pushUndo()
             plan.rooms.add(room)
             AppLog.i("Drew room ${room.describe()}")
+            showFloor(room.floor)
             changed()
             b.planView.select(room.id)
         }
@@ -156,11 +172,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     private fun addRoomFromKeyboard() {
         val (x, y) = b.planView.freeSpot()
-        val draft = Room(plan.nextId(), "Room ${plan.rooms.size + 1}", x, y, 3.0, 3.0, lastHeight())
+        val draft = Room(plan.nextId(), "Room ${plan.rooms.size + 1}", x, y, 3.0, 3.0, lastHeight(), lastPart(), b.planView.floor)
         showRoomDialog("Add room", draft) { room ->
             pushUndo()
             plan.rooms.add(room)
             AppLog.i("Added room from keyboard ${room.describe()}")
+            showFloor(room.floor)
             changed()
             b.planView.select(room.id)
             b.planView.fitToPlan()
@@ -169,6 +186,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     private fun editRoom(room: Room) {
         showRoomDialog("Edit room", room) { edited ->
+            if (edited == room) return@showRoomDialog
             pushUndo()
             AppLog.i("Edited room ${room.describe()} -> ${edited.describe()}")
             // Undo snapshot holds copies, so it's safe to change the live room in place.
@@ -176,6 +194,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             room.width = edited.width
             room.depth = edited.depth
             room.height = edited.height
+            room.part = edited.part
+            room.floor = edited.floor
+            showFloor(room.floor)
             changed()
             b.planView.select(room.id)
         }
@@ -190,8 +211,36 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         changed()
     }
 
+    /**
+     * A room can go completely, or be made unallocated: its space and walls
+     * stay exactly as they are, but it no longer counts as a room. An
+     * unallocated space can go completely, or be restored as a room.
+     */
     private fun deleteSelected() {
         val room = plan.room(b.planView.selectedId) ?: return
+        val options = if (room.unallocated) {
+            arrayOf("Delete completely – remove the space and its walls", "Restore as room '${room.name}'")
+        } else {
+            arrayOf("Delete completely – remove the room and its walls", "Make unallocated – keep the space and its walls, but not as a room")
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (room.unallocated) "Unallocated space" else "Delete ${room.name}")
+            .setItems(options) { _, which ->
+                if (which == 0) deleteCompletely(room) else setUnallocated(room, !room.unallocated)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun setUnallocated(room: Room, on: Boolean) {
+        pushUndo()
+        room.unallocated = on
+        AppLog.i(if (on) "Made room unallocated: ${room.describe()}" else "Restored room: ${room.describe()}")
+        changed()
+        b.planView.select(room.id)
+    }
+
+    private fun deleteCompletely(room: Room) {
         pushUndo()
         plan.rooms.remove(room)
         plan.pruneWallOverrides()
@@ -211,6 +260,18 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         v.widthInput.setText(fmtM(initial.width))
         v.depthInput.setText(fmtM(initial.depth))
         v.heightInput.setText(fmtM(initial.height))
+        val partButtons = mapOf(
+            BuildingPart.MAIN to v.partMain, BuildingPart.EXT1 to v.partExt1, BuildingPart.EXT2 to v.partExt2,
+            BuildingPart.EXT3 to v.partExt3, BuildingPart.EXT4 to v.partExt4,
+            BuildingPart.CONSERVATORY to v.partConservatory,
+        )
+        v.partGroup.check(partButtons.getValue(initial.part).id)
+        val floorChips = mapOf(
+            Floor.BASEMENT to v.floorBasement, Floor.GROUND to v.floorGround, Floor.FIRST to v.floor1,
+            Floor.SECOND to v.floor2, Floor.THIRD to v.floor3, Floor.FOURTH to v.floor4,
+            Floor.FIFTH to v.floor5, Floor.SIXTH to v.floor6, Floor.SEVENTH to v.floor7,
+        )
+        v.floorGroup.check(floorChips.getValue(initial.floor).id)
 
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(title)
@@ -227,8 +288,10 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 val h = parseSize(v.heightInput)
                 if (w == null || dd == null || h == null) return@setOnClickListener
                 val name = v.nameInput.text.toString().trim().ifBlank { initial.name }
-                prefs.edit().putFloat("lastHeight", h.toFloat()).apply()
-                onOk(initial.copy(name = name, width = w, depth = dd, height = h))
+                val part = partButtons.entries.first { it.value.id == v.partGroup.checkedChipId }.key
+                prefs.edit().putFloat("lastHeight", h.toFloat()).putString("lastPart", part.name).apply()
+                val floor = floorChips.entries.first { it.value.id == v.floorGroup.checkedChipId }.key
+                onOk(initial.copy(name = name, width = w, depth = dd, height = h, part = part, floor = floor))
                 dialog.dismiss()
             }
         }
@@ -247,6 +310,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
         return round3(v)
     }
+
+    /** New rooms start in the building part used last, since extensions tend to be drawn room after room. */
+    private fun lastPart() = BuildingPart.parse(prefs.getString("lastPart", null)) ?: BuildingPart.MAIN
 
     private fun lastHeight() = prefs.getFloat("lastHeight", DEFAULT_HEIGHT.toFloat()).toDouble().let(::round3)
 
@@ -278,19 +344,25 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     private fun setPlan(p: Plan, fit: Boolean = true) {
         plan = p
         b.planView.plan = p
+        b.planView.floor = startFloor(p, b.planView.floor)
         if (fit) b.planView.fitToPlan()
         updateUi()
     }
 
     private fun updateUi() {
         supportActionBar?.title = getString(R.string.app_name)
-        supportActionBar?.subtitle = plan.name
+        supportActionBar?.subtitle = "${plan.name}  ·  ${b.planView.floor.title}"
         val room = plan.room(b.planView.selectedId)
         b.status.text = when {
+            room != null && room.unallocated -> String.format(
+                Locale.UK, "Unallocated space (was %s) – not counted\n%s × %s m  ·  %s m²  ·  Delete to remove or restore",
+                room.name, fmtM(room.width), fmtM(room.depth), fmtM(plan.netArea(room)),
+            )
             room != null -> {
                 val net = plan.netArea(room)
                 val covered = round3(room.area) - net
-                val heading = if (covered > 0) String.format(Locale.UK, "%s  ·  %s m² covered by rooms on top", room.name, fmtM(covered)) else room.name
+                val title = "${room.name} (${room.part.label})"
+                val heading = if (covered > 0) String.format(Locale.UK, "%s  ·  %s m² covered by rooms on top", title, fmtM(covered)) else title
                 String.format(
                     Locale.UK, "%s\n%s × %s × %s m  ·  %s m²  ·  %s m³",
                     heading, fmtM(room.width), fmtM(room.depth), fmtM(room.height), fmtM(net), fmtM(plan.netVolume(room)),
@@ -299,9 +371,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             plan.rooms.isEmpty() && b.planView.oneFingerDraw -> "Drag on the grid to draw a room.\nTwo fingers to pan and zoom."
             plan.rooms.isEmpty() -> "Tap + Room to add a room.\nDrag to pan · pinch to zoom."
             else -> String.format(
-                Locale.UK, "%d rooms  ·  %s m²  ·  %s m³\n%s",
-                plan.rooms.size, fmtArea(plan.totalArea), fmtArea(plan.totalVolume),
-                if (b.planView.oneFingerDraw) "Drag: draw · tap: select · drag selected: move" else "Drag: pan · tap: select · drag selected: move",
+                Locale.UK, "%s%d rooms  ·  %s m²  ·  %s m³\n%s",
+                if (plan.floors().size > 1) "${b.planView.floor.title}: " else "",
+                plan.rooms(b.planView.floor).count { !it.unallocated },
+                fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netArea(it) }),
+                fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netVolume(it) }),
+                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / wall · drag selected: move" else "Drag: pan · hold: select room / wall · drag selected: move",
             )
         }
         b.editButton.isEnabled = room != null
@@ -519,6 +594,74 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    // --- floors ---
+
+    /**
+     * The floor to show for [p]: [preferred] if it has rooms (or the plan is
+     * empty), otherwise the lowest floor that has some.
+     */
+    private fun startFloor(p: Plan, preferred: Floor?): Floor {
+        val floors = p.floors()
+        return when {
+            preferred != null && (preferred in floors || floors.isEmpty()) -> preferred
+            floors.isNotEmpty() -> if (Floor.GROUND in floors) Floor.GROUND else floors.first()
+            else -> Floor.GROUND
+        }
+    }
+
+    private fun showFloor(floor: Floor) {
+        if (floor == b.planView.floor) return
+        b.planView.floor = floor
+        prefs.edit().putString(PREF_VIEW_FLOOR, floor.name).apply()
+        AppLog.i("Showing ${floor.title}")
+        updateUi()
+        invalidateOptionsMenu()
+    }
+
+    /** Copies the selected room's building part, on its floor, to floor [to] (the one above, or the basement). */
+    private fun addFloor(to: Floor) {
+        val room = plan.room(b.planView.selectedId) ?: return
+        val part = room.part
+        val from = room.floor
+        if (to == from) return
+        val count = plan.rooms.count { it.part == part && it.floor == from }
+        val already = plan.rooms.count { it.part == part && it.floor == to }
+        fun go() {
+            pushUndo()
+            val copies = plan.copyPart(part, from, to)
+            AppLog.i("Added ${if (to == Floor.BASEMENT) "basement" else "floor"}: copied ${copies.size} ${part.label} rooms from ${from.title} to ${to.title}")
+            showFloor(to)
+            changed()
+            Toast.makeText(this, "Copied ${copies.size} ${part.label} room${if (copies.size == 1) "" else "s"} to ${to.title} (Undo to remove)", Toast.LENGTH_LONG).show()
+        }
+        val msg = "Copies all $count ${part.label} room${if (count == 1) "" else "s"} on the ${from.title} to the ${to.title}, " +
+            "with the same sizes and positions. Rename and resize them there as needed." +
+            if (already > 0) "\n\nThe ${to.title} already has $already ${part.label} room${if (already == 1) "" else "s"}; the copies will be added on top." else ""
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Add ${to.title} to ${part.label}?")
+            .setMessage(msg)
+            .setPositiveButton("Add floor") { _, _ -> go() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseFloor() {
+        val floors = Floor.entries
+        val items = floors.map { f ->
+            val n = plan.rooms(f).size
+            f.title + if (n > 0) "  ($n room${if (n == 1) "" else "s"})" else ""
+        }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Show floor")
+            .setSingleChoiceItems(items, floors.indexOf(b.planView.floor)) { dialog, which ->
+                // Keeps the current zoom and pan, so floors line up as you switch.
+                showFloor(floors[which])
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     // --- settings ---
 
     private fun showSettings() {
@@ -617,6 +760,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     companion object {
         private const val PREF_ONE_FINGER_DRAW = "oneFingerDraw"
+        private const val PREF_VIEW_FLOOR = "viewFloor"
 
         private val PALETTE = listOf(
             "Red" to 0xFFD32F2F, "Pink" to 0xFFEC407A, "Purple" to 0xFF7B1FA2, "Deep purple" to 0xFF512DA8,

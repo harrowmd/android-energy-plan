@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.text.TextPaint
 import android.util.AttributeSet
@@ -23,10 +24,15 @@ import kotlin.math.round
  * The drawing surface.
  *  - One finger on empty space (or on a room that isn't selected) pans the
  *    plan - or, with [oneFingerDraw] on, drags out a new room.
- *  - Tap a room to select it (the top one, where rooms overlap); drag the selected room to move it.
+ *  - Long-press a room to select it (the top one, where rooms overlap) - a
+ *    short tap doesn't, so rooms aren't selected by accident. Keep holding
+ *    and drag, or drag the selected room later, to move it. A tap on empty
+ *    space clears the selection.
  *  - Double-tap a room to edit its sizes.
  *  - Long-press a wall to change its type or thickness.
  *  - Two fingers pan and pinch-zoom.
+ * Only the rooms on [floor] are shown and can be touched; the nearest other
+ * floor with rooms is drawn faintly underneath, to line rooms up against.
  * Corners and edges snap to other rooms' edges when close, otherwise to a
  * 10 cm grid. Rooms that share a wall touch: the wall is drawn over the join.
  */
@@ -54,6 +60,14 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
     var selectedId: Long? = null
         private set
+
+    /** The floor being shown. */
+    var floor: Floor = Floor.GROUND
+        set(value) {
+            field = value
+            if (plan.room(selectedId)?.floor != value) select(null)
+            invalidate()
+        }
 
     /** Key of the wall to outline, while its dialog is open. */
     var highlightWall: String? = null
@@ -109,7 +123,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            select(roomAt(e.x, e.y)?.id)
+            if (roomAt(e.x, e.y) == null) select(null)
             return true
         }
 
@@ -123,11 +137,25 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
         override fun onLongPress(e: MotionEvent) {
             if (mode != Mode.IDLE) return
-            val w = wallAt(e.x, e.y) ?: return
-            // The rest of this touch is ignored, so lifting the finger doesn't pan or move anything.
-            mode = Mode.LONG_PRESS
-            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            listener?.onWallLongPress(w)
+            // On a wall itself it's the wall; inside a room the room; just outside a wall, the wall again.
+            val wall = wallAt(e.x, e.y, WALL_ON_DP)
+            val room = if (wall == null) roomAt(e.x, e.y) else null
+            val nearWall = if (wall == null && room == null) wallAt(e.x, e.y, WALL_REACH_DP) else wall
+            when {
+                room != null -> {
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    select(room.id)
+                    // Dragging on from here moves the room, measured from where the finger is now.
+                    downX = e.x
+                    downY = e.y
+                }
+                nearWall != null -> {
+                    // The rest of this touch is ignored, so lifting the finger doesn't pan or move anything.
+                    mode = Mode.LONG_PRESS
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    listener?.onWallLongPress(nearWall)
+                }
+            }
         }
     })
 
@@ -148,7 +176,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             fitted = false
             return
         }
-        val bounds = plan.bounds()
+        val bounds = plan.bounds(floor = floor) ?: plan.bounds()
         if (bounds == null) {
             scale = 40f * d
             offX = 24f * d
@@ -167,12 +195,23 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         invalidate()
     }
 
-    /** A sensible spot for a room added from the keyboard: touching the right of everything else. */
+    /**
+     * A sensible spot for a room added from the keyboard: touching the right
+     * of everything else on this floor, or at the top-left of the building
+     * when the floor is still empty.
+     */
     fun freeSpot(): Pair<Double, Double> {
-        val rooms = plan.rooms
-        if (rooms.isEmpty()) return 0.0 to 0.0
+        val rooms = plan.rooms(floor)
+        if (rooms.isEmpty()) {
+            if (plan.rooms.isEmpty()) return 0.0 to 0.0
+            return plan.rooms.minOf { it.x } to plan.rooms.minOf { it.y }
+        }
         return rooms.maxOf { it.x + it.width } to rooms.minOf { it.y }
     }
+
+    /** The nearest other floor with rooms (below first), drawn faintly as a guide. */
+    private fun guideFloor(): Floor? =
+        plan.floors().filter { it != floor }.minWithOrNull(compareBy({ abs(it.ordinal - floor.ordinal) }, { it.ordinal > floor.ordinal }))
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         if (!fitted) fitToPlan()
@@ -182,8 +221,23 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         canvas.drawColor(Color.WHITE)
         val minor = renderer.drawGrid(canvas, scale, offX, offY, width, height)
 
-        val layout = plan.wallLayout()
-        for (r in plan.rooms) renderer.drawRoom(canvas, plan, layout, r, scale, offX, offY, r.id == selectedId)
+        val guide = guideFloor()
+        guide?.let { g -> for (r in plan.rooms(g)) renderer.drawGuide(canvas, r, scale, offX, offY) }
+        val layout = plan.wallLayout().on(floor)
+        for (r in plan.rooms(floor)) renderer.drawRoom(canvas, plan, layout, r, scale, offX, offY, r.id == selectedId)
+        if (guide != null) {
+            // Unallocated space is open to view: the guide floor's rooms show through its hatching.
+            val open = Path()
+            for (r in plan.rooms(floor)) if (r.unallocated) for (v in plan.visibleRects(r)) {
+                open.addRect(sx(v[0]), sy(v[1]), sx(v[2]), sy(v[3]), Path.Direction.CW)
+            }
+            if (!open.isEmpty) {
+                canvas.save()
+                canvas.clipPath(open)
+                for (r in plan.rooms(guide)) renderer.drawGuide(canvas, r, scale, offX, offY)
+                canvas.restore()
+            }
+        }
         renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall)
         plan.room(selectedId)?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
 
@@ -353,15 +407,15 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         val x = wx(sx)
         val y = wy(sy)
         // Topmost room in the stacking order.
-        return plan.rooms.lastOrNull { it.contains(x, y) }
+        return plan.rooms.lastOrNull { it.floor == floor && it.contains(x, y) }
     }
 
     /** The wall nearest the touch, if one is within reach of the finger. */
-    private fun wallAt(sx: Float, sy: Float): Wall? {
+    private fun wallAt(sx: Float, sy: Float, reachDp: Float): Wall? {
         val x = wx(sx)
         val y = wy(sy)
-        val reach = WALL_REACH_DP * d / scale
-        return plan.wallLayout().walls
+        val reach = reachDp * d / scale
+        return plan.wallLayout().on(floor).walls
             .map { w ->
                 val rc = w.rect
                 val dx = max(0.0, max(rc[0] - x, x - rc[2]))
@@ -397,6 +451,8 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         private const val SNAP_DP = 12f
         private const val GRID = 0.1          // metres
         private const val WALL_REACH_DP = 14f
+        /** A long-press this close to a wall picks the wall even inside a room. */
+        private const val WALL_ON_DP = 6f
         private const val MIN_ROOM = 0.1      // metres
     }
 }

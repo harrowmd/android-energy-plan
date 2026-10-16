@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/action_floor" android:title="Floor" app:showAsAction="ifRoom" />
     <item android:id="@+id/action_undo" android:title="Undo" app:showAsAction="always" />
     <item android:id="@+id/action_fit" android:title="Fit" app:showAsAction="always" />
     <item android:id="@+id/action_save" android:title="Save" app:showAsAction="always" />
+    <item android:id="@+id/action_add_floor" android:title="Add floor…" app:showAsAction="never" />
+    <item android:id="@+id/action_add_basement" android:title="Add basement" app:showAsAction="never" />
     <item android:id="@+id/action_bring_forward" android:title="Bring forward" app:showAsAction="never" />
     <item android:id="@+id/action_bring_front" android:title="Bring to front" app:showAsAction="never" />
     <item android:id="@+id/action_send_backward" android:title="Send backward" app:showAsAction="never" />

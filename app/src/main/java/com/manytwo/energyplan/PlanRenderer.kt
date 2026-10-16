@@ -29,6 +29,8 @@ class PlanRenderer(private val d: Float) {
     private val gridMajor = Paint().apply { color = 0xFFCFD6DB.toInt(); strokeWidth = max(1f, d * 0.75f) }
     private val fill = Paint().apply { color = 0xFFE8F5E9.toInt() }
     private val fillSelected = Paint().apply { color = 0xFFFFF3D6.toInt() }
+    private val fillUnallocated = Paint().apply { color = 0xFFF1F3F4.toInt() }
+    private val hatch = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFCFD8DC.toInt(); strokeWidth = 1f * d }
     /** The room's inner face; the walls themselves are drawn outside it by [drawWalls]. */
     private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF263238.toInt(); style = Paint.Style.STROKE; strokeWidth = 1f * d
@@ -38,6 +40,10 @@ class PlanRenderer(private val d: Float) {
     private val wallHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF000000.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f * d
         pathEffect = DashPathEffect(floatArrayOf(6f * d, 4f * d), 0f)
+    }
+    private val guideLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF90A4AE.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f * d
+        pathEffect = DashPathEffect(floatArrayOf(4f * d, 4f * d), 0f)
     }
     private val draftFill = Paint().apply { color = 0x332E7D32 }
     private val draftLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -90,6 +96,22 @@ class PlanRenderer(private val d: Float) {
      */
     fun drawRoom(c: Canvas, plan: Plan, layout: WallLayout, r: Room, scale: Float, offX: Float, offY: Float, selected: Boolean) {
         val full = screenRect(r, scale, offX, offY)
+        if (r.unallocated) {
+            c.drawRect(full, if (selected) fillSelected else fillUnallocated)
+            // Diagonal hatching, so unallocated space can't be mistaken for a room.
+            c.save()
+            c.clipRect(full)
+            // Lines of constant x + y, on a fixed spacing, so neighbouring spaces' hatching joins up.
+            val step = 10f * d
+            var k = ceil((full.left + full.top) / step) * step
+            while (k < full.right + full.bottom) {
+                c.drawLine(k - full.bottom, full.bottom, k - full.top, full.top, hatch)
+                k += step
+            }
+            c.restore()
+            // Just the hatching: no outline, sizes or label, as it isn't a room.
+            return
+        }
         c.drawRect(full, if (selected) fillSelected else fill)
         c.drawRect(full, outline)
 
@@ -106,6 +128,11 @@ class PlanRenderer(private val d: Float) {
         if (visible.isEmpty()) return
         val sides = drawEdgeDimensions(c, r, rect, covers)
         drawCentreLabel(c, plan, r, rect, visible, sides)
+    }
+
+    /** A room on another floor: a faint dashed outline to line this floor's rooms up against. */
+    fun drawGuide(c: Canvas, r: Room, scale: Float, offX: Float, offY: Float) {
+        c.drawRect(screenRect(r, scale, offX, offY), guideLine)
     }
 
     /** The orange outline is drawn last, so the selected room shows even if it's underneath others. */
@@ -195,7 +222,7 @@ class PlanRenderer(private val d: Float) {
         val all = listOf(
             r.name to nameText,
             "${fmtArea(plan.netArea(r))} m²" to infoText,
-            "h ${fmtM(r.height)} m" to infoText,
+            "h ${fmtM(r.height)} m" + (if (r.part != BuildingPart.MAIN) "  ·  ${r.part.label}" else "") to infoText,
         )
         var best: Triple<RectF, Int, Float>? = null
         for (block in visible.take(20)) {
@@ -258,24 +285,31 @@ class PlanRenderer(private val d: Float) {
             val r = PlanRenderer(d)
             val margin = 40f * d
             val headerH = 64f * d
+            val floorHeadH = 28f * d
             val rowH = 22f * d
 
             val rooms = plan.rooms
             val layout = plan.wallLayout()
             val totals = layout.totals()
-            val bounds = plan.bounds(layout) ?: doubleArrayOf(0.0, 0.0, 4.0, 3.0)
-            val minX = bounds[0]
-            val minY = bounds[1]
-            val bw = max(bounds[2] - minX, 1.0)
-            val bh = max(bounds[3] - minY, 1.0)
-            val scale = (2000.0 / max(bw, bh)).toFloat()
-            val planW = (bw * scale).toFloat()
-            val planH = (bh * scale).toFloat()
 
-            val tableTop = headerH + planH + 2 * margin
+            // One drawing per floor, at one scale and lined up on the same x, so floors compare.
+            val floors = plan.floors().ifEmpty { listOf(Floor.GROUND) }
+            val floorHeads = floors.size > 1 || floors[0] != Floor.GROUND
+            val boxes = floors.map { plan.bounds(layout, it) ?: doubleArrayOf(0.0, 0.0, 4.0, 3.0) }
+            val minX = boxes.minOf { it[0] }
+            val bw = max(boxes.maxOf { it[2] } - minX, 1.0)
+            val maxH = boxes.maxOf { max(it[3] - it[1], 1.0) }
+            val scale = (2000.0 / max(bw, maxH)).toFloat()
+            val planW = (bw * scale).toFloat()
+            val plansH = boxes.sumOf { (max(it[3] - it[1], 1.0) * scale + margin + if (floorHeads) floorHeadH else 0f).toDouble() }.toFloat()
+
+            val tableTop = headerH + margin + plansH
             val hasOverlap = rooms.any { plan.netArea(it) < round3(it.area) }
             val wallTableH = if (totals.isEmpty()) 0f else rowH * (totals.size + 2) + 12f * d
-            val tableH = rowH * (rooms.size + if (hasOverlap) 3 else 2) + 12f * d + wallTableH
+            val floorRows = plan.floorTotals().size.takeIf { it > 1 } ?: 0
+            val partRows = plan.partTotals().size.takeIf { it > 1 } ?: 0
+            val unallocatedRows = if (rooms.any { it.unallocated }) 1 else 0
+            val tableH = rowH * (rooms.size + floorRows + partRows + unallocatedRows + if (hasOverlap) 3 else 2) + 12f * d + wallTableH
             val width = max(planW + 2 * margin, 1800f).toInt()
             val height = (tableTop + tableH + margin).toInt()
 
@@ -283,29 +317,41 @@ class PlanRenderer(private val d: Float) {
             val c = Canvas(bmp)
             c.drawColor(Color.WHITE)
 
-            val offX = (width - planW) / 2 - (minX * scale).toFloat()
-            val offY = headerH + margin - (minY * scale).toFloat()
-
-            // Grid only behind the plan area, not the header or table.
-            c.save()
-            c.clipRect(0f, headerH, width.toFloat(), tableTop)
-            r.drawGrid(c, scale, offX, offY, width, height)
-            c.restore()
-            for (room in rooms) r.drawRoom(c, plan, layout, room, scale, offX, offY, false)
-            r.drawWalls(c, layout, scale, offX, offY)
-
             val title = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = 0xFF1A1A1A.toInt(); textSize = 24f * d; typeface = Typeface.DEFAULT_BOLD
             }
             val sub = TextPaint(title).apply { color = 0xFF546E7A.toInt(); textSize = 13f * d; typeface = Typeface.DEFAULT }
+            val floorTitle = TextPaint(title).apply { textSize = 16f * d }
+
+            val offX = (width - planW) / 2 - (minX * scale).toFloat()
+            var top = headerH + margin
+            for ((floor, box) in floors.zip(boxes)) {
+                if (floorHeads) {
+                    c.drawText(floor.title, margin, top + 18f * d, floorTitle)
+                    top += floorHeadH
+                }
+                val planH = (max(box[3] - box[1], 1.0) * scale).toFloat()
+                val offY = top - (box[1] * scale).toFloat()
+                // Grid only behind this floor's drawing, not the headings or table.
+                c.save()
+                c.clipRect(0f, top - margin / 2, width.toFloat(), top + planH + margin / 2)
+                r.drawGrid(c, scale, offX, offY, width, height)
+                c.restore()
+                val floorLayout = layout.on(floor)
+                for (room in plan.rooms(floor)) r.drawRoom(c, plan, floorLayout, room, scale, offX, offY, false)
+                r.drawWalls(c, floorLayout, scale, offX, offY)
+                top += planH + margin
+            }
+
             c.drawText(plan.name, margin, 32f * d, title)
             val date = SimpleDateFormat("d MMM yyyy", Locale.UK).format(Date())
+            val floorText = if (floors.size > 1) "  ·  ${floors.size} floors" else ""
             c.drawText(
-                "$date  ·  ${rooms.size} rooms  ·  ${fmtArea(plan.totalArea)} m²  ·  ${fmtArea(plan.totalVolume)} m³",
+                "$date  ·  ${plan.allocated.size} rooms$floorText  ·  ${fmtArea(plan.totalArea)} m²  ·  ${fmtArea(plan.totalVolume)} m³",
                 margin, 52f * d, sub,
             )
 
-            // 1 m scale bar, bottom-left of the plan area.
+            // 1 m scale bar, bottom-left under the last drawing.
             val barY = tableTop - 14f * d
             val bar = Paint().apply { color = 0xFF263238.toInt(); strokeWidth = 2f * d }
             c.drawLine(margin, barY, margin + scale, barY, bar)
@@ -359,15 +405,16 @@ class PlanRenderer(private val d: Float) {
                 color = 0xFF1A1A1A.toInt(); textSize = 12f * d; typeface = Typeface.DEFAULT_BOLD
             }
             val body = TextPaint(head).apply { color = 0xFF263238.toInt(); typeface = Typeface.DEFAULT }
+            val muted = TextPaint(body).apply { color = 0xFF78909C.toInt(); typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC) }
             val line = Paint().apply { color = 0xFF90A4AE.toInt(); strokeWidth = d }
 
-            // Column right-edges as fractions of the table width (first column is left-aligned).
-            val cols = listOf(0.0f, 0.46f, 0.58f, 0.70f, 0.85f, 1.0f)
+            // Room, Floor and Part are left-aligned from their x; the numbers are right-aligned to theirs.
+            val cols = listOf(0.0f, 0.30f, 0.42f, 0.56f, 0.66f, 0.76f, 0.88f, 1.0f)
             fun row(y: Float, cells: List<String>, p: TextPaint) {
                 cells.forEachIndexed { i, text ->
-                    if (i == 0) {
+                    if (i <= 2) {
                         p.textAlign = Paint.Align.LEFT
-                        c.drawText(text, left, y, p)
+                        c.drawText(text, left + w * cols[i], y, p)
                     } else {
                         p.textAlign = Paint.Align.RIGHT
                         c.drawText(text, left + w * cols[i], y, p)
@@ -376,21 +423,41 @@ class PlanRenderer(private val d: Float) {
             }
 
             var y = top + rowH * 0.7f
-            row(y, listOf("Room", "Width x", "Depth y", "Height z", "Area m²", "Volume m³"), head)
+            row(y, listOf("Room", "Floor", "Part", "Width x", "Depth y", "Height z", "Area m²", "Volume m³"), head)
             c.drawLine(left, y + rowH * 0.3f, left + w, y + rowH * 0.3f, line)
-            for (r in plan.rooms) {
+            for (r in plan.rooms.sortedBy { it.floor }) {
                 y += rowH
                 val net = plan.netArea(r)
                 val mark = if (net < round3(r.area)) " *" else ""
-                row(y, listOf(r.name + mark, fmtM(r.width), fmtM(r.depth), fmtM(r.height), fmtM(net), fmtM(plan.netVolume(r))), body)
+                if (r.unallocated) {
+                    row(y, listOf("Unallocated (${r.name})" + mark, r.floor.label, r.part.label, fmtM(r.width), fmtM(r.depth), fmtM(r.height), "(${fmtM(net)})", "(${fmtM(plan.netVolume(r))})"), muted)
+                } else {
+                    row(y, listOf(r.name + mark, r.floor.label, r.part.label, fmtM(r.width), fmtM(r.depth), fmtM(r.height), fmtM(net), fmtM(plan.netVolume(r))), body)
+                }
             }
             c.drawLine(left, y + rowH * 0.3f, left + w, y + rowH * 0.3f, line)
             y += rowH
-            row(y, listOf("Total", "", "", "", fmtM(plan.totalArea), fmtM(plan.totalVolume)), head)
+            row(y, listOf("Total", "", "", "", "", "", fmtM(plan.totalArea), fmtM(plan.totalVolume)), head)
+            fun rooms(n: Int) = "$n room" + if (n == 1) "" else "s"
+            val floors = plan.floorTotals()
+            if (floors.size > 1) for (t in floors) {
+                y += rowH
+                row(y, listOf("  ${t.floor.title} total", rooms(t.rooms), "", "", "", "", fmtM(t.area), fmtM(t.volume)), body)
+            }
+            val parts = plan.partTotals()
+            if (parts.size > 1) for (t in parts) {
+                y += rowH
+                row(y, listOf("  ${t.part.label} total", rooms(t.rooms), "", "", "", "", fmtM(t.area), fmtM(t.volume)), body)
+            }
             if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) {
                 y += rowH
                 body.textAlign = Paint.Align.LEFT
                 c.drawText("* Area and volume exclude the part covered by a room on top.", left, y, body)
+            }
+            if (plan.rooms.any { it.unallocated }) {
+                y += rowH
+                body.textAlign = Paint.Align.LEFT
+                c.drawText("Unallocated space (in brackets, ${fmtM(plan.unallocatedArea)} m² in all) is not included in the totals.", left, y, body)
             }
         }
     }

@@ -4,4 +4,13 @@
         <item name="colorPrimaryDark">@color/brand_dark</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <!-- A building part choice in the room dialog; the chosen one is solid green. -->
+    <style name="PartChip" parent="Widget.Material3.Chip.Filter">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="chipBackgroundColor">@color/part_button_bg</item>
+        <item name="android:textColor">@color/part_button_text</item>
+        <item name="checkedIconTint">@android:color/white</item>
+    </style>
 </resources>
