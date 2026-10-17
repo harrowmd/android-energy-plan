@@ -96,7 +96,11 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        menu.findItem(R.id.action_floor).title = b.planView.floor.label
+        // In the toolbar the short name shows; when it overflows into ⋮ the full title makes clear what it does.
+        menu.findItem(R.id.action_floor).apply {
+            title = "Floor: ${b.planView.floor.title}…"
+            titleCondensed = b.planView.floor.label
+        }
         menu.findItem(R.id.action_undo).isEnabled = undoStack.isNotEmpty()
         // Each stacking action is only offered when it would change something.
         val room = plan.room(b.planView.selectedId)

@@ -175,6 +175,9 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.7.1** — When the floor button doesn't fit in the toolbar (phones), its
+  ⋮ menu entry reads "Floor: Ground floor…" instead of just the floor name.
+
 - **v1.7** — Dimensions tables: area, height, HLP and PWL per building part
   and floor, under each floor in the JPG, in a Summary section and screen
   (**⋮ → Summary**), and in the JSON. JPG column fixes; wall log lines name
