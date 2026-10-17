@@ -116,7 +116,7 @@ class Wall(
     val ends: DoubleArray
         get() = if (side.horizontal) doubleArrayOf(from, face, to, face) else doubleArrayOf(face, from, face, to)
 
-    fun describe() = "${room.name} ${side.label} wall" + (neighbour?.let { " (to ${it.name})" } ?: "") +
+    fun describe() = "${room.floor.title}: ${room.name} ${side.label} wall" + (neighbour?.let { " (to ${it.name})" } ?: "") +
         ", ${type.label} ${mm(thickness)} mm, ${fmtM(length)} m"
 }
 
@@ -303,4 +303,59 @@ private fun Plan.neighbourSpans(r: Room, side: Side, a: Double, b: Double): List
         }
     }
     return out.filter { it.second - it.first > MIN_WALL }
+}
+
+/** Wall types counted in the heat loss perimeter (HLP); Party walls are counted separately (PWL). */
+val HLP_TYPES = setOf(WallType.EXTERNAL, WallType.SHELTERED, WallType.GLAZING)
+
+/**
+ * One line of the dimensions table: a building part on one floor. [area] is
+ * the rooms' net area, [height] their area-weighted average height, [hlp] the
+ * heat loss perimeter (External, Sheltered and Glazing walls) and [pwl] the
+ * party wall length, all in metres.
+ */
+data class DimRow(
+    val part: BuildingPart?, val floor: Floor?, val rooms: Int,
+    val area: Double, val height: Double, val hlp: Double, val pwl: Double,
+)
+
+/** How a dimensions row is shown: a part on one floor, a part's subtotal, or the grand total. */
+enum class DimStyle { ROW, SUBTOTAL, TOTAL }
+
+/** Adds rows up; the height is weighted by area. */
+fun List<DimRow>.total(part: BuildingPart? = null, floor: Floor? = null): DimRow {
+    val area = sumOf { it.area }
+    val height = if (area > 0) sumOf { it.area * it.height } / area else 0.0
+    return DimRow(part, floor, sumOf { it.rooms }, round3(area), round3(height), round3(sumOf { it.hlp }), round3(sumOf { it.pwl }))
+}
+
+/**
+ * The dimensions table: one row per building part and floor, in part then
+ * floor order. Unallocated space adds no area, and its walls count only when
+ * a room is on the other side (then they count for that room).
+ */
+fun Plan.dimensions(layout: WallLayout = wallLayout()): List<DimRow> {
+    val hlp = mutableMapOf<Pair<BuildingPart, Floor>, Double>()
+    val pwl = mutableMapOf<Pair<BuildingPart, Floor>, Double>()
+    for (w in layout.walls) {
+        val owner = when {
+            !w.room.unallocated -> w.room
+            w.neighbour?.unallocated == false -> w.neighbour
+            else -> null
+        } ?: continue
+        val key = owner.part to owner.floor
+        if (w.type in HLP_TYPES) hlp[key] = (hlp[key] ?: 0.0) + w.length
+        if (w.type == WallType.PARTY) pwl[key] = (pwl[key] ?: 0.0) + w.length
+    }
+    return allocated.groupBy { it.part to it.floor }
+        .toSortedMap(compareBy({ it.first }, { it.second }))
+        .map { (key, rs) ->
+            val area = rs.sumOf { netArea(it) }
+            val volume = rs.sumOf { netVolume(it) }
+            DimRow(
+                key.first, key.second, rs.size, round3(area),
+                round3(if (area > 0) volume / area else rs.map { it.height }.average()),
+                round3(hlp[key] ?: 0.0), round3(pwl[key] ?: 0.0),
+            )
+        }
 }

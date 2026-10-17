@@ -11,6 +11,12 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.HorizontalScrollView
+import android.widget.TableLayout
+import android.widget.TableRow
+import android.widget.TextView
+import android.view.Gravity
+import android.graphics.Typeface
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import android.net.Uri
@@ -38,6 +44,19 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     private var plan = Plan()
     private val undoStack = ArrayDeque<Plan>()
     private val prefs by lazy { getSharedPreferences("energyplan", MODE_PRIVATE) }
+
+    private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching { PlanStorage.setCustomFolder(this, uri) }
+            .onSuccess {
+                AppLog.i("Save location: $uri")
+                Toast.makeText(this, PlanStorage.locationLabel(this), Toast.LENGTH_LONG).show()
+            }
+            .onFailure {
+                AppLog.e("Could not use folder $uri", it)
+                Toast.makeText(this, "Can't save to that folder: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+    }
 
     private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { openPlan(it) }
@@ -105,14 +124,15 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_floor -> chooseFloor()
             R.id.action_undo -> undo()
             R.id.action_fit -> b.planView.fitToPlan()
+            R.id.action_summary -> showSummary()
             R.id.action_add_floor -> plan.room(b.planView.selectedId)?.floor?.above?.let { addFloor(it) }
             R.id.action_add_basement -> addFloor(Floor.BASEMENT)
             R.id.action_bring_forward -> restack { plan.bringForward(it) }
             R.id.action_bring_front -> restack { plan.bringToFront(it) }
             R.id.action_send_backward -> restack { plan.sendBackward(it) }
             R.id.action_send_back -> restack { plan.sendToBack(it) }
-            R.id.action_save -> askName("Save plan", "Save") { save(share = false) }
-            R.id.action_share -> save(share = true)
+            R.id.action_save -> askName("Save plan", "Save") { save() }
+            R.id.action_save_location -> chooseSaveLocation()
             R.id.action_share_log -> shareLog()
             R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
             R.id.action_rename -> askName("Rename plan", "Rename") {}
@@ -411,33 +431,26 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .show()
     }
 
-    private fun save(share: Boolean) {
+    private fun save() {
         val snapshot = plan.copy()
         Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
-        AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³" + if (share) " (then share)" else "")
+        AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³ to ${PlanStorage.locationLabel(this)}")
         AppLog.i("Walls: " + snapshot.wallLayout().totals().joinToString { (t, th, len) -> "${t.label} ${mm(th)} mm ${fmtM(len)} m" })
         thread {
             val start = System.currentTimeMillis()
-            val result = runCatching {
-                PlanStorage.saveJson(this, snapshot).also { AppLog.i("Wrote JSON $it") }
-                PlanStorage.saveJpg(this, snapshot).also { AppLog.i("Wrote JPG $it") }
-            }
+            val result = runCatching { PlanStorage.save(this, snapshot) }
             result.onSuccess { AppLog.i("Save finished in ${System.currentTimeMillis() - start} ms") }
                 .onFailure { AppLog.e("Save failed", it) }
             // Written last, so it records how the save went - even a failed one.
-            runCatching { PlanStorage.saveLog(this, snapshot) }.onFailure { AppLog.e("Could not write log file", it) }
+            val log = runCatching { PlanStorage.saveLog(this, snapshot) }.onFailure { AppLog.e("Could not write log file", it) }
             runOnUiThread {
-                result.onSuccess { jpg ->
-                    if (share) shareJpg(jpg)
-                    else {
-                        val base = PlanStorage.fileBase(snapshot.name)
-                        MaterialAlertDialogBuilder(this)
-                            .setTitle("Saved")
-                            .setMessage("${PlanStorage.JSON_DIR}$base.json\n${PlanStorage.JSON_DIR}$base-log.txt\n${PlanStorage.JPG_DIR}$base.jpg")
-                            .setPositiveButton("OK", null)
-                            .setNeutralButton("Share JPG") { _, _ -> shareJpg(jpg) }
-                            .show()
-                    }
+                result.onSuccess { names ->
+                    val all = names + listOfNotNull(log.getOrNull()?.let { "${PlanStorage.baseName(snapshot)}.txt" })
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Saved ${all.size} files")
+                        .setMessage(PlanStorage.locationLabel(this) + "\n\n" + all.joinToString("\n"))
+                        .setPositiveButton("OK", null)
+                        .show()
                 }.onFailure {
                     Toast.makeText(this, "Save failed: ${it.message}", Toast.LENGTH_LONG).show()
                 }
@@ -445,14 +458,19 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
     }
 
-    private fun shareJpg(uri: Uri) {
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "image/jpeg"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, plan.name)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(Intent.createChooser(send, "Share plan"))
+    /** Lets the user send saves to any folder they can pick (including cloud folders), or back to the defaults. */
+    private fun chooseSaveLocation() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Save location")
+            .setMessage(PlanStorage.locationLabel(this))
+            .setPositiveButton("Choose folder…") { _, _ -> pickFolder.launch(null) }
+            .setNeutralButton("Use default") { _, _ ->
+                PlanStorage.setCustomFolder(this, null)
+                AppLog.i("Save location: default")
+                Toast.makeText(this, "Saving to the default folders", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun shareLog() {
@@ -593,6 +611,64 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    // --- summary ---
+
+    /**
+     * Area, height, heat loss perimeter and party wall length for every
+     * building part on every floor, with subtotals - the same table as the
+     * JPG's Summary.
+     */
+    private fun showSummary() {
+        val rows = PlanRenderer.summaryRows(plan.dimensions())
+        if (rows.isEmpty()) {
+            Toast.makeText(this, "No rooms yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val table = TableLayout(this).apply {
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+            isStretchAllColumns = true
+        }
+        fun addRow(cells: List<String>, bold: Boolean) {
+            table.addView(TableRow(this).apply {
+                cells.forEachIndexed { i, text ->
+                    addView(TextView(this@MainActivity).apply {
+                        this.text = text
+                        textSize = 14f
+                        setPadding(dp(6), dp(4), dp(6), dp(4))
+                        gravity = if (i <= 1) Gravity.START else Gravity.END
+                        if (bold) setTypeface(typeface, Typeface.BOLD)
+                    })
+                }
+            })
+        }
+        addRow(listOf("Part", "Floor", "Area m²", "Height m", "HLP m", "PWL m"), true)
+        for ((r, style) in rows) {
+            val name = when (style) {
+                DimStyle.ROW -> r.part?.label ?: ""
+                DimStyle.SUBTOTAL -> "${r.part?.label} total"
+                DimStyle.TOTAL -> "Total"
+            }
+            val floor = if (style == DimStyle.ROW) r.floor?.label ?: "" else ""
+            addRow(listOf(name, floor, fmtM(r.area), fmtM(r.height), fmtM(r.hlp), fmtM(r.pwl)), style != DimStyle.ROW)
+        }
+        val note = TextView(this).apply {
+            text = "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length. Unallocated space isn't counted."
+            textSize = 12f
+            setPadding(dp(26), dp(4), dp(26), dp(8))
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(HorizontalScrollView(this@MainActivity).apply { addView(table) })
+            addView(note)
+        }
+        AppLog.i("Summary shown: ${rows.size} rows")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Summary – ${plan.name}")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setPositiveButton("OK", null)
+            .show()
+    }
 
     // --- floors ---
 

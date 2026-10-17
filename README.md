@@ -61,6 +61,12 @@ works out each room's floor area and volume, plus the totals.
 
   The colour for each type can be changed in **⋮ → Settings…**. All the
   outside stretches on one side of a room share one setting.
+- **Summary:** **⋮ → Summary** shows, for every building part on every
+  floor, the area, average height, **HLP** (heat loss perimeter: the length of
+  External, Sheltered and Glazing walls) and **PWL** (party wall length), with
+  a subtotal per part and a grand total. The JPG has the same table under each
+  floor's drawing and a Summary section after the last floor. Unallocated
+  space isn't counted; a wall between it and a room counts for the room.
 - **Delete:** select a room and tap **Delete**, then choose **Delete
   completely** (the room and its walls go) or **Make unallocated**: the space
   and its outside walls stay exactly as they are (there's no wall between
@@ -76,16 +82,23 @@ works out each room's floor area and volume, plus the totals.
 
 ## Files
 
-**Save** (in the toolbar) asks for a plan name, then writes:
+**Save** (in the toolbar) asks for a plan name, then writes these files,
+named with the save date and the plan name (spaces become `_`):
 
-| File | Location |
+| File | Contents |
 |---|---|
-| Plan image with room and wall schedules and a 1 m scale bar | `Pictures/EnergyPlan/<name>.jpg` |
-| Plan data | `Documents/EnergyPlan/<name>.json` |
-| App log (for debugging) | `Documents/EnergyPlan/<name>-log.txt` |
+| `2026-10-17-Test_Plan_2.Ground.jpg` (one per floor: `.Basement`, `.Ground`, `.1st` …) | That floor's drawing, 1 m scale bar and dimensions table, on an A4 page |
+| `2026-10-17-Test_Plan_2.Summary.jpg` (`.Summary-2.jpg` … if longer) | Dimensions summary, wall schedule and room schedule, on A4 pages |
+| `2026-10-17-Test_Plan_2.pdf` | All of the pages above, at A4 |
+| `2026-10-17-Test_Plan_2.json` | Plan data |
+| `2026-10-17-Test_Plan_2.txt` | App log (for debugging) |
 
-Saving again under the same name overwrites both files. **Share JPG** saves and
-then opens the Android share sheet. **Open plan…** loads a saved `.json` file.
+By default the JPGs go to `Pictures/EnergyPlan/` and the rest to
+`Documents/EnergyPlan/`. **⋮ → Save location…** picks any other folder
+(including a cloud folder whose app offers one), or goes back to the default.
+Saving again on the same day overwrites that day's files (and removes page
+JPGs the new save no longer needs); a save on another day makes a new set.
+**Open plan…** loads a saved `.json` file. **⋮ → Share log** sends the log.
 
 The log records app starts (version, device, Android version), every room
 drawn, added, edited, moved, deleted or restacked, undo, saves and opens, and
@@ -110,6 +123,9 @@ The JSON format:
       "height": 2.4, "grossArea": 13.02, "area": 13.02, "volume": 31.248 }
   ],
   "floorTotals": [ { "floor": "Ground", "rooms": 1, "area": 13.02, "volume": 31.248 } ],
+  "dimensions": [ { "buildingPart": "Main", "floor": "Ground", "rooms": 1,
+    "area": 13.02, "height": 2.4, "hlp": 14.6, "pwl": 0 } ],
+  "dimensionsTotal": { "rooms": 1, "area": 13.02, "height": 2.4, "hlp": 14.6, "pwl": 0 },
   "partTotals": [ { "buildingPart": "Main", "rooms": 1, "area": 13.02, "volume": 31.248 } ],
   "walls": [
     { "floor": "Ground", "roomId": 1, "room": "Kitchen", "side": "top",
@@ -134,6 +150,11 @@ use. `buildingPart` is `Main`, `Ext1`, `Ext2`, `Ext3`, `Ext4` or `Conservatory` 
 files open as `Main`); `partTotals` gives the number of rooms and the net area
 and volume of each part in use.
 
+`dimensions` has one entry per building part and floor: net area, average
+height (weighted by area), `hlp` (heat loss perimeter: External, Sheltered and
+Glazing walls) and `pwl` (party wall length), in metres; `dimensionsTotal`
+adds them up.
+
 `walls` lists every run of wall: its floor, the room it bounds (id and name),
 which side, the room on the other side (id and name, `null` for none), its type, thickness and length in metres,
 and its end points along the room's inside face. A wall shared by two rooms is
@@ -154,6 +175,12 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.7** — Dimensions tables: area, height, HLP and PWL per building part
+  and floor, under each floor in the JPG, in a Summary section and screen
+  (**⋮ → Summary**), and in the JSON. JPG column fixes; wall log lines name
+  the floor. Save writes one A4 JPG per floor plus summary pages, a PDF of
+  them all, the JSON and the log, named yyyy-mm-dd-Plan_Name; **Save
+  location…** chooses the folder; Share JPG removed.
 - **v1.6** — Floors (Basement, Ground, 1st–7th), shown one at a time with
   the floor below as dashed outlines; **Add floor** / **Add basement** copy a
   building part to another floor. Building parts (Main, Ext1–Ext4,

@@ -5,13 +5,14 @@
     <item android:id="@+id/action_undo" android:title="Undo" app:showAsAction="always" />
     <item android:id="@+id/action_fit" android:title="Fit" app:showAsAction="always" />
     <item android:id="@+id/action_save" android:title="Save" app:showAsAction="always" />
+    <item android:id="@+id/action_summary" android:title="Summary" app:showAsAction="never" />
     <item android:id="@+id/action_add_floor" android:title="Add floor…" app:showAsAction="never" />
     <item android:id="@+id/action_add_basement" android:title="Add basement" app:showAsAction="never" />
     <item android:id="@+id/action_bring_forward" android:title="Bring forward" app:showAsAction="never" />
     <item android:id="@+id/action_bring_front" android:title="Bring to front" app:showAsAction="never" />
     <item android:id="@+id/action_send_backward" android:title="Send backward" app:showAsAction="never" />
     <item android:id="@+id/action_send_back" android:title="Send to back" app:showAsAction="never" />
-    <item android:id="@+id/action_share" android:title="Share JPG" app:showAsAction="never" />
+    <item android:id="@+id/action_save_location" android:title="Save location…" app:showAsAction="never" />
     <item android:id="@+id/action_share_log" android:title="Share log" app:showAsAction="never" />
     <item android:id="@+id/action_open" android:title="Open plan…" app:showAsAction="never" />
     <item android:id="@+id/action_rename" android:title="Rename plan…" app:showAsAction="never" />

@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.round
 
 /** Which part of the building a room is in: the main house, one of up to four extensions, or a conservatory. */
@@ -137,7 +138,7 @@ class Plan(
     fun canBringForward(r: Room) = roomsAbove(r).isNotEmpty()
     fun canSendBackward(r: Room) = roomsBelow(r).isNotEmpty()
 
-    fun netArea(r: Room) = round3(r.area - cover(r).coveredArea)
+    fun netArea(r: Room) = max(0.0, round3(r.area - cover(r).coveredArea))
     fun netVolume(r: Room) = netArea(r) * r.height
 
     /** Uncovered rectangles of [r] as (x0, y0, x1, y1), biggest first; empty if it's hidden completely. */
@@ -250,6 +251,27 @@ class Plan(
                     put("volume", t.volume)
                 })
             })
+            val dims = dimensions(layout)
+            put("dimensions", JSONArray().apply {
+                for (r in dims) put(JSONObject().apply {
+                    put("buildingPart", r.part!!.label)
+                    put("floor", r.floor!!.label)
+                    put("rooms", r.rooms)
+                    put("area", r.area)
+                    put("height", r.height)
+                    put("hlp", r.hlp)
+                    put("pwl", r.pwl)
+                })
+            })
+            put("dimensionsTotal", dims.total().let { t ->
+                JSONObject().apply {
+                    put("rooms", t.rooms)
+                    put("area", t.area)
+                    put("height", t.height)
+                    put("hlp", t.hlp)
+                    put("pwl", t.pwl)
+                }
+            })
             put("partTotals", JSONArray().apply {
                 for (t in partTotals()) put(JSONObject().apply {
                     put("buildingPart", t.part.label)
@@ -343,5 +365,8 @@ const val DEFAULT_HEIGHT = 2.4
 /** Rounds to the nearest millimetre, so snapped/typed values don't pick up float noise. */
 fun round3(v: Double) = round(v * 1000) / 1000
 
-fun fmtM(v: Double) = String.format(Locale.UK, "%.2f", v)
-fun fmtArea(v: Double) = String.format(Locale.UK, "%.1f", v)
+/** Tiny float noise either side of zero would print as "-0.00". */
+private fun noNegZero(v: Double) = if (kotlin.math.abs(v) < 0.0005) 0.0 else v
+
+fun fmtM(v: Double) = String.format(Locale.UK, "%.2f", noNegZero(v))
+fun fmtArea(v: Double) = String.format(Locale.UK, "%.1f", noNegZero(v))
