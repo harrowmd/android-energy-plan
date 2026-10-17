@@ -657,7 +657,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             addRow(listOf(name, floor, fmtM(r.area), fmtM(r.height), fmtM(r.hlp), fmtM(r.pwl)), style != DimStyle.ROW)
         }
         val note = TextView(this).apply {
-            text = "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length. Unallocated space isn't counted."
+            text = "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length. Unallocated space adds no area, but its outside walls count."
             textSize = 12f
             setPadding(dp(26), dp(4), dp(26), dp(8))
         }

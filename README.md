@@ -66,7 +66,8 @@ works out each room's floor area and volume, plus the totals.
   External, Sheltered and Glazing walls) and **PWL** (party wall length), with
   a subtotal per part and a grand total. The JPG has the same table under each
   floor's drawing and a Summary section after the last floor. Unallocated
-  space isn't counted; a wall between it and a room counts for the room.
+  space adds no area, but its outside walls still count towards HLP and PWL
+  (for its part and floor); a wall between it and a room counts for the room.
 - **Delete:** select a room and tap **Delete**, then choose **Delete
   completely** (the room and its walls go) or **Make unallocated**: the space
   and its outside walls stay exactly as they are (there's no wall between
@@ -174,6 +175,9 @@ adb install -r app/build/outputs/apk/debug/m21energyplan.apk
 Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
+
+- **v1.7.2** — HLP and PWL include the outside walls of unallocated space
+  (it still adds no area).
 
 - **v1.7.1** — When the floor button doesn't fit in the toolbar (phones), its
   ⋮ menu entry reads "Floor: Ground floor…" instead of just the floor name.

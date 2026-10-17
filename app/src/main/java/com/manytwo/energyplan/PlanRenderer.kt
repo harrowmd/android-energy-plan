@@ -395,7 +395,7 @@ class PlanRenderer(private val d: Float) {
             if (dims.isNotEmpty()) {
                 section("Dimensions")
                 lines += dimLines(p, summaryRows(dims), margin, w, rowH)
-                lines += noteLine(p, "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length.", margin, rowH)
+                lines += noteLine(p, "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length. Unallocated space adds no area, but its outside walls count.", margin, rowH)
                 gap()
             }
             val totals = layout.totals()

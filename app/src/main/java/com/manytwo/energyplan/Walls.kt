@@ -331,31 +331,32 @@ fun List<DimRow>.total(part: BuildingPart? = null, floor: Floor? = null): DimRow
 
 /**
  * The dimensions table: one row per building part and floor, in part then
- * floor order. Unallocated space adds no area, and its walls count only when
- * a room is on the other side (then they count for that room).
+ * floor order. Unallocated space adds no area, but its outside walls are
+ * still the building's envelope, so they count towards HLP and PWL for its
+ * part and floor. A wall between unallocated space and a room counts for
+ * the room.
  */
 fun Plan.dimensions(layout: WallLayout = wallLayout()): List<DimRow> {
     val hlp = mutableMapOf<Pair<BuildingPart, Floor>, Double>()
     val pwl = mutableMapOf<Pair<BuildingPart, Floor>, Double>()
     for (w in layout.walls) {
-        val owner = when {
-            !w.room.unallocated -> w.room
-            w.neighbour?.unallocated == false -> w.neighbour
-            else -> null
-        } ?: continue
+        val owner = w.neighbour?.takeIf { w.room.unallocated && !it.unallocated } ?: w.room
         val key = owner.part to owner.floor
         if (w.type in HLP_TYPES) hlp[key] = (hlp[key] ?: 0.0) + w.length
         if (w.type == WallType.PARTY) pwl[key] = (pwl[key] ?: 0.0) + w.length
     }
-    return allocated.groupBy { it.part to it.floor }
-        .toSortedMap(compareBy({ it.first }, { it.second }))
-        .map { (key, rs) ->
-            val area = rs.sumOf { netArea(it) }
-            val volume = rs.sumOf { netVolume(it) }
-            DimRow(
-                key.first, key.second, rs.size, round3(area),
-                round3(if (area > 0) volume / area else rs.map { it.height }.average()),
-                round3(hlp[key] ?: 0.0), round3(pwl[key] ?: 0.0),
-            )
+    // Every part and floor with rooms, or with walls of its own (e.g. only unallocated space).
+    val byKey = rooms.groupBy { it.part to it.floor }
+    val keys = (allocated.map { it.part to it.floor } + hlp.keys + pwl.keys).toSortedSet(compareBy({ it.first }, { it.second }))
+    return keys.map { key ->
+        val rs = allocated.filter { (it.part to it.floor) == key }
+        val area = rs.sumOf { netArea(it) }
+        val volume = rs.sumOf { netVolume(it) }
+        val height = when {
+            area > 0 -> volume / area
+            rs.isNotEmpty() -> rs.map { it.height }.average()
+            else -> byKey[key]?.map { it.height }?.average() ?: 0.0
         }
+        DimRow(key.first, key.second, rs.size, round3(area), round3(height), round3(hlp[key] ?: 0.0), round3(pwl[key] ?: 0.0))
+    }
 }
