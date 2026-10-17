@@ -395,7 +395,7 @@ class PlanRenderer(private val d: Float) {
             if (dims.isNotEmpty()) {
                 section("Dimensions")
                 lines += dimLines(p, summaryRows(dims), margin, w, rowH)
-                lines += noteLine(p, "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length. Unallocated space adds no area, but its outside walls count.", margin, rowH)
+                lines += noteLines(p, "HLP: heat loss perimeter (External, Sheltered and Glazing walls). PWL: party wall length. Unallocated space adds no area, but its outside walls count.", margin, w, rowH)
                 gap()
             }
             val totals = layout.totals()
@@ -458,8 +458,22 @@ class PlanRenderer(private val d: Float) {
             paint.textAlign = Paint.Align.LEFT
         }
 
-        private fun noteLine(p: Paints, text: String, left: Float, rowH: Float) =
-            Line(rowH) { c, top -> c.drawText(text, left, top + rowH * 0.7f, p.body) }
+        /** A note, word-wrapped to [w] so it never runs off the page. */
+        private fun noteLines(p: Paints, text: String, left: Float, w: Float, rowH: Float): List<Line> {
+            val wrapped = mutableListOf<String>()
+            var line = ""
+            for (word in text.split(' ')) {
+                val tryLine = if (line.isEmpty()) word else "$line $word"
+                if (line.isNotEmpty() && p.body.measureText(tryLine) > w) {
+                    wrapped += line
+                    line = word
+                } else {
+                    line = tryLine
+                }
+            }
+            if (line.isNotEmpty()) wrapped += line
+            return wrapped.map { t -> Line(rowH) { c, top -> c.drawText(t, left, top + rowH * 0.7f, p.body) } }
+        }
 
         /**
          * Building Part, Floor, Area, Height, HLP (heat loss perimeter: External,
@@ -503,7 +517,7 @@ class PlanRenderer(private val d: Float) {
                 c.drawRect(left, top + rowH * 0.15f, left + sw, top + rowH * 0.75f, swatch)
                 row(c, top, type.label, mm(thickness), fmtM(length), p.body)
             }
-            out += noteLine(p, "Lengths are measured along the inside face of each room.", left, rowH)
+            out += noteLines(p, "Lengths are measured along the inside face of each room.", left, w, rowH)
             return out
         }
 
@@ -535,9 +549,9 @@ class PlanRenderer(private val d: Float) {
             if (parts.size > 1) for (t in parts) out += Line(rowH) { c, top ->
                 cells(c, top, rowH, left, w, cols, 3, listOf("  ${t.part.label} total", rooms(t.rooms), "", "", "", "", fmtM(t.area), fmtM(t.volume)), p.body)
             }
-            if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) out += noteLine(p, "* Area and volume exclude the part covered by a room on top.", left, rowH)
+            if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) out += noteLines(p, "* Area and volume exclude the part covered by a room on top.", left, w, rowH)
             if (plan.rooms.any { it.unallocated }) {
-                out += noteLine(p, "Unallocated space (grey, in brackets, ${fmtM(plan.unallocatedArea)} m² in all) is not included in the totals.", left, rowH)
+                out += noteLines(p, "Unallocated space (grey, in brackets, ${fmtM(plan.unallocatedArea)} m² in all) is not included in the totals.", left, w, rowH)
             }
             return out
         }

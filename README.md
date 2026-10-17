@@ -176,6 +176,8 @@ Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
 ## Version history
 
+- **v1.7.3** — Notes on the PDF/JPG pages wrap instead of running off the page.
+
 - **v1.7.2** — HLP and PWL include the outside walls of unallocated space
   (it still adds no area).
 
