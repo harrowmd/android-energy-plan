@@ -4,6 +4,9 @@ A simple Android app for sketching rectangular floor plans, for example during
 a home energy survey. Draw rooms with your finger, type their exact sizes, mark
 each wall's type, and save the plan as a JPG image plus a JSON data file.
 
+**[User guide](USERGUIDE.md)** – everything the app does, step by step. The
+same guide is built into the app: **⋮ → Help**.
+
 It deliberately does a lot less than commercial floor-plan apps. Rooms are
 rectangles with a width (x), depth (y) and ceiling height (z), and the app
 works out each room's floor area and volume, plus the totals.
@@ -187,6 +190,10 @@ adb install -r app/build/outputs/apk/debug/m21energyplan.apk
 
 Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
+The in-app Help page (`app/src/main/assets/userguide.html`) is generated from
+`USERGUIDE.md`; after editing the guide, run `python3 tools/userguide_html.py`
+(needs the Python `markdown` package).
+
 ## Updating
 
 **⋮ → About** has **Check for update**, which looks up the latest GitHub
@@ -196,6 +203,9 @@ release APK again. The first time, Android asks you to allow Energy Plan to
 install apps. The plan on screen and the settings are kept.
 
 ## Version history
+
+- **v1.8.1** — User guide ([USERGUIDE.md](USERGUIDE.md)), also built into the
+  app as **⋮ → Help**.
 
 - **v1.8** — Bay windows (Angled, Square, Bow): long-press an outside wall;
   they add area and wall length (HLP/PWL). Double-tap a wall for its type.

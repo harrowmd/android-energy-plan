@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Energy Plan – User Guide</title>
+<style>
+  :root { --brand: #2E7D32; --ink: #1a1a1a; --muted: #546E7A; --rule: #CFD8DC; --bg: #ffffff; --code: #F1F3F4; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 Roboto, "Segoe UI", sans-serif; max-width: 860px; }
+  h1 { color: var(--brand); font-size: 1.6em; margin: 0.2em 0 0.6em; }
+  h2 { color: var(--brand); font-size: 1.3em; margin-top: 1.8em; padding-top: 0.6em; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.1em; margin-top: 1.4em; }
+  a { color: var(--brand); }
+  table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 0.95em; display: block; overflow-x: auto; }
+  th, td { border: 1px solid var(--rule); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #E8F5E9; }
+  code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; word-break: break-all; }
+  hr { border: 0; border-top: 1px solid var(--rule); }
+  li { margin: 0.25em 0; }
+</style>
+</head>
+<body>
+<h1 id="energy-plan--user-guide">Energy Plan – User Guide</h1>
+<p>Energy Plan sketches simple floor plans for home energy surveys. You draw
+rectangular rooms, type their exact sizes, mark what each wall is, and save
+the plan as A4 pages (JPG and PDF) plus a data file (JSON) with every area,
+volume and wall length worked out for you.</p>
+<p>This guide covers version 1.8.1 and later. The latest copy is on GitHub:
+<a href="https://github.com/harrowmd/android-energy-plan/blob/main/USERGUIDE.md">https://github.com/harrowmd/android-energy-plan/blob/main/USERGUIDE.md</a></p>
+<h2 id="contents">Contents</h2>
+<ol>
+<li><a href="#1-the-screen">The screen</a></li>
+<li><a href="#2-touch-gestures">Touch gestures</a></li>
+<li><a href="#3-rooms">Rooms</a></li>
+<li><a href="#4-walls">Walls</a></li>
+<li><a href="#5-bay-windows">Bay windows</a></li>
+<li><a href="#6-floors">Floors</a></li>
+<li><a href="#7-building-parts">Building parts</a></li>
+<li><a href="#8-overlapping-rooms">Overlapping rooms</a></li>
+<li><a href="#9-unallocated-space">Unallocated space</a></li>
+<li><a href="#10-summary-area-height-hlp-and-pwl">Summary: area, height, HLP and PWL</a></li>
+<li><a href="#11-saving-files-and-opening-plans">Saving, files and opening plans</a></li>
+<li><a href="#12-undo-autosave-and-new-plans">Undo, autosave and new plans</a></li>
+<li><a href="#13-settings">Settings</a></li>
+<li><a href="#14-updating-the-app">Updating the app</a></li>
+<li><a href="#15-the--menu-at-a-glance">The ⋮ menu at a glance</a></li>
+<li><a href="#16-tips-and-troubleshooting">Tips and troubleshooting</a></li>
+<li><a href="#17-data-file-json-reference">Data file (JSON) reference</a></li>
+</ol>
+<hr />
+<h2 id="1-the-screen">1. The screen</h2>
+<ul>
+<li><strong>Toolbar (top):</strong> the plan name and the floor you're looking at, then<ul>
+<li><strong>Floor button</strong> (e.g. <em>GROUND</em>) – switch floors. On a narrow phone it
+  moves into the ⋮ menu as <strong>Floor: Ground floor…</strong></li>
+<li><strong>Undo</strong> – take back the last change.</li>
+<li><strong>Fit</strong> – zoom so the whole floor fits the screen.</li>
+<li><strong>Save</strong> – save the plan (see <a href="#11-saving-files-and-opening-plans">Saving</a>).</li>
+<li><strong>⋮</strong> – the menu with everything else.</li>
+</ul>
+</li>
+<li><strong>Plan (middle):</strong> a grid with 50 cm squares (shown bottom-left, e.g.
+  <em>Grid 50 cm · snap 10 cm</em>). Rooms are pale green; walls are solid bars in
+  their type's colour; the floor below shows as faint dashed outlines.</li>
+<li><strong>Status (bottom):</strong> with nothing selected, the number of rooms, area and
+  volume of the floor shown, and a reminder of the gestures. With a room
+  selected, its name, building part, sizes, area and volume.</li>
+<li><strong>Buttons (bottom):</strong> <strong>+ Room</strong> (add a room by typing its sizes),
+  <strong>Edit</strong> and <strong>Delete</strong> (for the selected room).</li>
+</ul>
+<h2 id="2-touch-gestures">2. Touch gestures</h2>
+<table>
+<thead>
+<tr>
+<th>Gesture</th>
+<th>Where</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Drag one finger</td>
+<td>Anywhere</td>
+<td>Pans the plan (or draws a room, if <em>One finger create room</em> is on)</td>
+</tr>
+<tr>
+<td>Pinch / two fingers</td>
+<td>Anywhere</td>
+<td>Zooms and pans</td>
+</tr>
+<tr>
+<td>Long-press</td>
+<td>Inside a room</td>
+<td>Selects it (top room where rooms overlap); keep holding and drag to move it</td>
+</tr>
+<tr>
+<td>Drag</td>
+<td>The selected room</td>
+<td>Moves it; edges snap to other rooms and the 10 cm grid</td>
+</tr>
+<tr>
+<td>Tap</td>
+<td>Empty space</td>
+<td>Clears the selection</td>
+</tr>
+<tr>
+<td>Double-tap</td>
+<td>Inside a room</td>
+<td>Opens the room's dialog (name, floor, part, sizes)</td>
+</tr>
+<tr>
+<td>Double-tap</td>
+<td>On a wall</td>
+<td>Opens the wall dialog (type and thickness)</td>
+</tr>
+<tr>
+<td>Long-press</td>
+<td>On an outside wall</td>
+<td>Adds a bay window there</td>
+</tr>
+<tr>
+<td>Long-press</td>
+<td>On a bay window</td>
+<td>Changes or removes it</td>
+</tr>
+</tbody>
+</table>
+<p>A short tap on a room does <strong>not</strong> select it, so rooms aren't picked by
+accident. A short vibration tells you a long-press has worked.</p>
+<h2 id="3-rooms">3. Rooms</h2>
+<h3 id="adding-a-room">Adding a room</h3>
+<ul>
+<li>
+<p><strong>+ Room:</strong> type a name, choose its floor and building part, and enter</p>
+<ul>
+<li><strong>Width – x</strong> (left to right, metres),</li>
+<li><strong>Depth – y</strong> (top to bottom, metres),</li>
+<li><strong>Ceiling height – z</strong> (metres).</li>
+</ul>
+<p>It's placed to the right of the rooms already on that floor, touching
+them. Drag it into place.</p>
+</li>
+<li>
+<p><strong>Draw with one finger (optional):</strong> turn on <strong>⋮ → Settings… → One finger
+    create room</strong>, then drag on the grid. Corners snap to nearby room edges or
+    the 10 cm grid; when you lift your finger, the room dialog opens with the
+    drawn size filled in.</p>
+</li>
+</ul>
+<p>Sizes are <strong>internal</strong> (inside the walls) – measure wall face to wall face.
+The ceiling height you last typed is used for the next new room, and new
+rooms start on the floor shown and in the building part you used last.</p>
+<h3 id="moving-editing-and-deleting">Moving, editing and deleting</h3>
+<ul>
+<li><strong>Move:</strong> long-press the room and drag, or drag it once selected. Edges
+  snap to the edges of other rooms (on any floor) and to a 10 cm grid, so
+  neighbouring rooms line up exactly.</li>
+<li><strong>Edit:</strong> double-tap the room, or select it and tap <strong>Edit</strong>. You can
+  change its name, floor, building part and sizes. Changing the floor moves
+  the view to that floor.</li>
+<li><strong>Delete:</strong> select it and tap <strong>Delete</strong>, then choose<ul>
+<li><strong>Delete completely</strong> – the room and its walls go; or</li>
+<li><strong>Make unallocated</strong> – keep the space and its outside walls, but it's no
+  longer a room (see <a href="#9-unallocated-space">Unallocated space</a>).</li>
+</ul>
+</li>
+</ul>
+<h3 id="whats-shown-in-a-room">What's shown in a room</h3>
+<p>The room's name, its net floor area, its height (and its building part if
+it isn't <em>Main</em>), with the width along the top wall and the depth along the
+left wall. Labels move to the visible part of a room if another room covers
+part of it, and keep clear of thick walls.</p>
+<h2 id="4-walls">4. Walls</h2>
+<h3 id="automatic-walls">Automatic walls</h3>
+<p>Every side of every room gets a wall automatically:</p>
+<ul>
+<li>Where another room on the same floor touches it (or is within 15 cm), that
+  stretch is a shared <strong>Internal</strong> wall, drawn <strong>centred on the join</strong> – half
+  in each room – so the rooms stay neatly aligned.</li>
+<li>Everything else is <strong>External</strong> and is drawn <strong>outside</strong> the room, wrapping
+  round it, with square corners.</li>
+</ul>
+<p>Draw rooms touching each other – snapping makes this easy – and the walls
+take care of themselves.</p>
+<h3 id="wall-types">Wall types</h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Default thickness</th>
+<th>Default colour</th>
+<th>Typical use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>External</td>
+<td>350 mm</td>
+<td>Red</td>
+<td>Outside walls</td>
+</tr>
+<tr>
+<td>Internal</td>
+<td>120 mm</td>
+<td>Green</td>
+<td>Walls between rooms</td>
+</tr>
+<tr>
+<td>Sheltered</td>
+<td>150 mm</td>
+<td>Purple</td>
+<td>Walls to an unheated space (garage, loft, store)</td>
+</tr>
+<tr>
+<td>Party</td>
+<td>300 mm</td>
+<td>Orange</td>
+<td>Walls shared with a neighbouring home</td>
+</tr>
+<tr>
+<td>Stud</td>
+<td>100 mm</td>
+<td>Blue</td>
+<td>Timber stud partitions</td>
+</tr>
+<tr>
+<td>Glazing</td>
+<td>80 mm</td>
+<td>Pink</td>
+<td>Fully glazed walls (e.g. conservatories)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="changing-a-wall">Changing a wall</h3>
+<p><strong>Double-tap a wall.</strong> The wall is outlined and a dialog shows where it is
+(e.g. <em>Between Kitchen and Dining · 3.50 m long</em>) and its automatic type.</p>
+<ul>
+<li>Pick a <strong>type</strong> – its default thickness is filled in.</li>
+<li>Change the <strong>Thickness (mm)</strong> if the wall is thicker or thinner.</li>
+<li><strong>OK</strong> saves it; <strong>Automatic</strong> puts the wall back to its automatic type.</li>
+</ul>
+<p>A wall is split into separate pieces wherever the room on the other side
+changes, and each piece keeps its own setting. On an outside wall, all the
+outside stretches on one side of a room share one setting.</p>
+<p>Wall colours can be changed in <strong>⋮ → Settings…</strong>.</p>
+<h2 id="5-bay-windows">5. Bay windows</h2>
+<p><strong>Long-press an outside wall</strong> where you want the bay. Choose:</p>
+<ul>
+<li><strong>Type:</strong><ul>
+<li><strong>Angled</strong> – a front parallel to the wall with 45° sides (steeper if the
+  bay is too deep for 45°).</li>
+<li><strong>Square</strong> – a rectangular box.</li>
+<li><strong>Bow</strong> – a circular arc.</li>
+</ul>
+</li>
+<li><strong>Depth out from the wall</strong> (metres).</li>
+<li><strong>Width along the wall</strong> (metres) – the dialog shows the most that fits on
+  that stretch of wall.</li>
+</ul>
+<p>The bay is centred where you pressed, within that stretch of wall; bays on
+the same wall can't overlap.</p>
+<p>What a bay does:</p>
+<ul>
+<li>Its <strong>floor area is added to the room</strong> (and the room's volume).</li>
+<li>The <strong>wall follows the bay's outline</strong>, with the same type and thickness as
+  the wall it's on. That wall gets longer by the bay's outline less its
+  width, which increases the HLP (or PWL for a party wall).</li>
+<li>Bays belong to their floor: <strong>Add floor</strong> and <strong>Add basement</strong> don't copy
+  them.</li>
+</ul>
+<p><strong>Long-press a bay</strong> to change it, or tap <strong>Remove</strong> in its dialog.</p>
+<p>In the room schedule, rooms with bays are marked <strong>†</strong>, because their area
+is more than width × depth.</p>
+<h2 id="6-floors">6. Floors</h2>
+<p>Each room is on a floor: <strong>Basement, Ground, 1st … 7th</strong>.</p>
+<ul>
+<li><strong>Switch floors:</strong> tap the floor button in the toolbar (or <strong>⋮ → Floor:…</strong>
+  on a phone). The list shows how many rooms each floor has. Switching keeps
+  the same zoom and position, so floors line up as you flip between them.</li>
+<li><strong>Guide outlines:</strong> the nearest other floor with rooms (the one below,
+  where there is one) is drawn as faint dashed outlines, so you can line up
+  the rooms above. Room edges snap to them too.</li>
+<li><strong>New rooms</strong> go on the floor shown. To move a room to another floor,
+  change <strong>Floor</strong> in its dialog.</li>
+<li>Rooms on different floors never overlap or share walls.</li>
+</ul>
+<h3 id="add-floor-and-add-basement">Add floor and Add basement</h3>
+<p>To copy a whole floor's layout as a starting point:</p>
+<ol>
+<li>Long-press any room in the building part you want to copy (e.g. <em>Main</em>).</li>
+<li><strong>⋮ → Add floor: copy Main to 1st floor</strong>.</li>
+<li>Confirm. Every room in that building part on that floor is copied to the
+   floor above, with the same sizes, positions and wall changes (but not bay
+   windows). The view moves to the new floor.</li>
+<li>Rename, resize, delete or make rooms unallocated as needed.</li>
+</ol>
+<p>From the ground floor, <strong>⋮ → Add basement</strong> does the same downwards. One
+<strong>Undo</strong> removes a whole copy. If the target floor already has rooms in that
+part, you're warned first; the copies are added on top.</p>
+<h2 id="7-building-parts">7. Building parts</h2>
+<p>Each room belongs to a building part: <strong>Main</strong>, <strong>Ext1</strong> to <strong>Ext4</strong>
+(extensions) or <strong>Conservatory</strong>. Choose it in the room dialog. Rooms
+outside Main show their part on the plan (e.g. <em>h 2.40 m · Ext1</em>).</p>
+<p>Areas, volumes, HLP and PWL are given for each part and floor in the
+<a href="#10-summary-area-height-hlp-and-pwl">Summary</a>.</p>
+<h2 id="8-overlapping-rooms">8. Overlapping rooms</h2>
+<p>A room drawn later sits <strong>on top</strong> of earlier ones. Where rooms overlap, the
+overlap belongs to the room on top: the room underneath loses that area
+(and volume), and the totals don't count it twice. For example, draw a large
+room and then a WC inside it – the large room's area excludes the WC.</p>
+<p>Change which room is on top from the ⋮ menu (select a room first):</p>
+<ul>
+<li><strong>Bring forward / Send backward</strong> – one step past the next room it
+  overlaps (rooms it doesn't touch are skipped).</li>
+<li><strong>Bring to front / Send to back</strong> – all the way.</li>
+</ul>
+<p>Items that would change nothing are greyed out. In the room schedule, rooms
+that lose area to a room on top are marked <strong>*</strong>.</p>
+<h2 id="9-unallocated-space">9. Unallocated space</h2>
+<p><strong>Delete → Make unallocated</strong> turns a room into unallocated space – for
+example a loft void, stairwell, or the parts of a floor copied with <strong>Add
+floor</strong> that don't exist upstairs.</p>
+<ul>
+<li>It's shown as <strong>grey hatching</strong> only (no name, sizes or outline). The
+  floor below shows through as dashed outlines.</li>
+<li>It adds <strong>no area or volume</strong> to any total.</li>
+<li>Its <strong>outside walls stay</strong> – they're still the building's envelope and
+  <strong>count towards HLP and PWL</strong> (for its building part and floor).</li>
+<li>There's no wall between two unallocated spaces. A room next to unallocated
+  space keeps its wall (Internal by default – change it to <em>Sheltered</em> if the
+  space is unheated).</li>
+<li>Select it and tap <strong>Delete</strong> again to <strong>Delete completely</strong> or <strong>Restore as
+  room</strong> (it gets its name back).</li>
+</ul>
+<h2 id="10-summary-area-height-hlp-and-pwl">10. Summary: area, height, HLP and PWL</h2>
+<p><strong>⋮ → Summary</strong> shows a table for the whole plan:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Building part, Floor</td>
+<td>One row per building part on each floor</td>
+</tr>
+<tr>
+<td>Area m²</td>
+<td>Net floor area of the rooms (including bays, excluding unallocated space and parts covered by rooms on top)</td>
+</tr>
+<tr>
+<td>Height m</td>
+<td>Average ceiling height, weighted by area</td>
+</tr>
+<tr>
+<td>HLP m</td>
+<td><strong>Heat loss perimeter</strong>: total length of External, Sheltered and Glazing walls</td>
+</tr>
+<tr>
+<td>PWL m</td>
+<td><strong>Party wall length</strong>: total length of Party walls</td>
+</tr>
+</tbody>
+</table>
+<p>A part on more than one floor gets a subtotal row, and the last row is the
+total. All wall lengths are measured along the <strong>inside face</strong> of the rooms.</p>
+<p>The same table appears in the saved files: under each floor's drawing (that
+floor's rows) and as the <strong>Summary</strong> page (with subtotals).</p>
+<h2 id="11-saving-files-and-opening-plans">11. Saving, files and opening plans</h2>
+<h3 id="save">Save</h3>
+<p>Tap <strong>Save</strong>, check the plan name, and tap <strong>Save</strong>. The app writes,
+named with today's date and the plan name (spaces become <code>_</code>):</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What's in it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>2026-10-18-My_House.Ground.jpg</code> – one per floor (<code>.Basement</code>, <code>.Ground</code>, <code>.1st</code>, …)</td>
+<td>That floor on an A4 page: the drawing, a 1 m scale bar and the floor's dimensions table</td>
+</tr>
+<tr>
+<td><code>2026-10-18-My_House.Summary.jpg</code> (and <code>.Summary-2.jpg</code> … if longer)</td>
+<td>The summary (dimensions with subtotals), the wall schedule (total length of each wall type and thickness) and the room schedule (every room with floor, part, sizes, area and volume, plus totals per floor and per part)</td>
+</tr>
+<tr>
+<td><code>2026-10-18-My_House.pdf</code></td>
+<td>All of the pages above, at A4 – ready to print or email</td>
+</tr>
+<tr>
+<td><code>2026-10-18-My_House.json</code></td>
+<td>The plan data, to open again later or use elsewhere</td>
+</tr>
+<tr>
+<td><code>2026-10-18-My_House.txt</code></td>
+<td>The app's log, which helps if something goes wrong</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Floor pages are landscape if the building is wider than it is deep. All
+  floors use the same scale and position, so they line up page to page.</li>
+<li>Saving again <strong>on the same day</strong> replaces that day's files (and removes
+  page JPGs no longer needed, e.g. a floor you deleted). Saving on another
+  day makes a new set, so earlier days are kept.</li>
+<li>Only one save runs at a time; pressing Save during a save shows <em>Still
+  saving…</em>.</li>
+</ul>
+<h3 id="where-files-go--save-location">Where files go – Save location</h3>
+<p>By default, JPGs go to <strong>Pictures/EnergyPlan</strong> (they appear in the gallery)
+and everything else to <strong>Documents/EnergyPlan</strong>.</p>
+<p><strong>⋮ → Save location… → Choose folder…</strong> sends all files to a folder you
+pick instead – including a cloud folder such as Nextcloud, if its app offers
+one in the picker. <strong>Use default</strong> goes back to the default folders. Saving
+to a cloud folder is slower (each file is uploaded; allow 20–40 seconds).</p>
+<h3 id="open-a-saved-plan">Open a saved plan</h3>
+<p><strong>⋮ → Open plan…</strong> and pick a saved <code>.json</code> file. The current plan can be
+brought back with <strong>Undo</strong>.</p>
+<h3 id="rename">Rename</h3>
+<p><strong>⋮ → Rename plan…</strong> changes the plan name (used in the file names and on
+the pages).</p>
+<h3 id="share-log">Share log</h3>
+<p><strong>⋮ → Share log</strong> sends the app's log (e.g. by email) – useful when
+reporting a problem.</p>
+<h2 id="12-undo-autosave-and-new-plans">12. Undo, autosave and new plans</h2>
+<ul>
+<li><strong>Undo</strong> reverses the last change – adding, editing, moving, deleting,
+  restacking, wall and bay changes, copying floors – up to 50 steps.</li>
+<li>The plan on screen is <strong>saved automatically</strong> after every change, so
+  closing the app (or updating it) loses nothing. Autosave is separate from
+  <strong>Save</strong>: it doesn't write the JPG/PDF/JSON files.</li>
+<li><strong>⋮ → New plan</strong> starts an empty plan after asking you to confirm. The old
+  one can still be brought back with Undo (or opened from its saved JSON).</li>
+</ul>
+<h2 id="13-settings">13. Settings</h2>
+<p><strong>⋮ → Settings…</strong>:</p>
+<ul>
+<li><strong>One finger create room</strong> – <em>No</em> (default): one finger pans the plan.
+  <em>Yes</em>: one-finger drag draws a new room. It's off by default because it's
+  easy to create rooms by accident.</li>
+<li><strong>Wall colours</strong> – one entry per wall type. Pick from 16 colours, enter a
+  custom <strong>#RRGGBB</strong> colour, or go back to the <strong>Default</strong>. Colours are used
+  on screen and in the saved pages. They're a setting on each device, not
+  part of the plan.</li>
+</ul>
+<h2 id="14-updating-the-app">14. Updating the app</h2>
+<p><strong>⋮ → About</strong> shows the version and build date, with:</p>
+<ul>
+<li><strong>Check for update</strong> – asks GitHub for the latest release. If it's newer,
+  you see what's new and can <strong>Download and install</strong> it.</li>
+<li><strong>Reinstall</strong> – downloads this same version again from GitHub and installs
+  it over the app (useful if something seems wrong with the installed copy).</li>
+</ul>
+<p>The first time, Android asks you to <strong>allow Energy Plan to install apps</strong>
+(<em>Install unknown apps → Allow from this source</em>). Turn it on, come back to
+the app and tap the button again; Android's installer then asks you to
+confirm. The plan on screen and your settings are kept.</p>
+<h2 id="15-the--menu-at-a-glance">15. The ⋮ menu at a glance</h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Floor: …</td>
+<td>Switch floor (only here when it doesn't fit in the toolbar)</td>
+</tr>
+<tr>
+<td>Summary</td>
+<td>Area, height, HLP and PWL for every part and floor</td>
+</tr>
+<tr>
+<td>Add floor</td>
+<td>Copy the selected room's building part to the floor above</td>
+</tr>
+<tr>
+<td>Add basement</td>
+<td>Copy the selected ground-floor room's part to the basement</td>
+</tr>
+<tr>
+<td>Bring forward / to front</td>
+<td>Put the selected room above overlapping rooms</td>
+</tr>
+<tr>
+<td>Send backward / to back</td>
+<td>Put the selected room below overlapping rooms</td>
+</tr>
+<tr>
+<td>Save location…</td>
+<td>Choose the folder for saved files</td>
+</tr>
+<tr>
+<td>Share log</td>
+<td>Send the app log</td>
+</tr>
+<tr>
+<td>Open plan…</td>
+<td>Open a saved <code>.json</code> plan</td>
+</tr>
+<tr>
+<td>Rename plan…</td>
+<td>Change the plan name</td>
+</tr>
+<tr>
+<td>New plan</td>
+<td>Start an empty plan</td>
+</tr>
+<tr>
+<td>Settings…</td>
+<td>One-finger drawing and wall colours</td>
+</tr>
+<tr>
+<td>Help</td>
+<td>This guide</td>
+</tr>
+<tr>
+<td>About</td>
+<td>Version, Check for update, Reinstall</td>
+</tr>
+</tbody>
+</table>
+<h2 id="16-tips-and-troubleshooting">16. Tips and troubleshooting</h2>
+<ul>
+<li><strong>Work room by room, touching:</strong> add a room, drag it against its neighbour
+  until it snaps, then the next. Shared walls appear automatically.</li>
+<li><strong>Copy floors:</strong> draw the ground floor completely, then use <strong>Add floor</strong>
+  and adjust, rather than drawing upper floors from scratch.</li>
+<li><strong>Unheated spaces:</strong> make a room <em>unallocated</em> (or leave it out), then set
+  the walls of the heated rooms facing it to <strong>Sheltered</strong>.</li>
+<li><strong>A room won't select:</strong> use a long-press, not a tap. Where rooms overlap
+  the top one is selected; use <strong>Send backward</strong> to reach one underneath.</li>
+<li><strong>A wall dialog opens instead of the room's:</strong> you double-tapped close to
+  a wall; double-tap nearer the middle of the room.</li>
+<li><strong>Long-press on a wall between rooms says "Bay windows go on outside
+  walls":</strong> bays can only be added to outside walls.</li>
+<li><strong>Saving to a cloud folder is slow:</strong> that's the upload; wait for the
+  <em>Saved</em> message. Use the default folders for speed.</li>
+<li><strong>Something looks wrong:</strong> <strong>⋮ → Share log</strong> and send the log with a
+  description of what happened.</li>
+</ul>
+<h2 id="17-data-file-json-reference">17. Data file (JSON) reference</h2>
+<p>The <code>.json</code> file holds everything needed to reopen the plan, plus the
+calculated results:</p>
+<ul>
+<li><code>name</code>, <code>saved</code>, <code>units</code> (<code>m</code>), <code>formatVersion</code>.</li>
+<li><code>rooms</code> – in stacking order (bottom first). Each has <code>id</code>, <code>name</code>,
+  <code>floor</code>, <code>buildingPart</code>, <code>unallocated</code>, <code>x</code>, <code>y</code> (top-left corner),
+  <code>width</code>, <code>depth</code>, <code>height</code>, <code>grossArea</code>, <code>area</code> (net), <code>volume</code>, and
+  <code>bays</code> (type, side, offset, width, depth, area, perimeter) if it has any.</li>
+<li><code>walls</code> – every stretch of wall: <code>floor</code>, <code>roomId</code>, <code>room</code>, <code>side</code>,
+  <code>neighbourId</code>, <code>neighbour</code> (<code>null</code> for outside walls), <code>type</code>,
+  <code>thickness</code>, <code>length</code> (including bays) and its end points.</li>
+<li><code>wallTotals</code> – total length per wall type and thickness.</li>
+<li><code>dimensions</code> and <code>dimensionsTotal</code> – the Summary table: area, height, HLP
+  and PWL per building part and floor.</li>
+<li><code>floorTotals</code>, <code>partTotals</code>, <code>totalArea</code>, <code>totalVolume</code>,
+  <code>unallocatedArea</code>.</li>
+<li><code>wallOverrides</code> – the walls you changed (the only wall data read back when
+  opening a plan; everything else is recalculated).</li>
+</ul>
+<p>All lengths are in metres and areas in m².</p>
+</body>
+</html>

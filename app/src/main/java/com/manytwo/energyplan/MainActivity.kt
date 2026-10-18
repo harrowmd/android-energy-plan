@@ -142,6 +142,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_rename -> askName("Rename plan", "Rename") {}
             R.id.action_new -> confirmNewPlan()
             R.id.action_settings -> showSettings()
+            R.id.action_help -> startActivity(Intent(this, HelpActivity::class.java))
             R.id.action_about -> showAbout()
             else -> return super.onOptionsItemSelected(item)
         }

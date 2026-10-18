@@ -18,5 +18,6 @@
     <item android:id="@+id/action_rename" android:title="Rename plan…" app:showAsAction="never" />
     <item android:id="@+id/action_new" android:title="New plan" app:showAsAction="never" />
     <item android:id="@+id/action_settings" android:title="Settings…" app:showAsAction="never" />
+    <item android:id="@+id/action_help" android:title="Help" app:showAsAction="never" />
     <item android:id="@+id/action_about" android:title="About" app:showAsAction="never" />
 </menu>
