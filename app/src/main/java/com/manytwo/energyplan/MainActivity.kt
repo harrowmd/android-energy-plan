@@ -135,7 +135,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_bring_front -> restack { plan.bringToFront(it) }
             R.id.action_send_backward -> restack { plan.sendBackward(it) }
             R.id.action_send_back -> restack { plan.sendToBack(it) }
-            R.id.action_save -> askName("Save plan", "Save") { save() }
+            R.id.action_save -> if (saving) Toast.makeText(this, "Still saving…", Toast.LENGTH_SHORT).show() else askName("Save plan", "Save") { save() }
             R.id.action_save_location -> chooseSaveLocation()
             R.id.action_share_log -> shareLog()
             R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
@@ -191,6 +191,24 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     override fun onWallLongPress(wall: Wall) = showWallDialog(wall)
+
+    override fun onBayRequested(wall: Wall, along: Double) {
+        val room = wall.room
+        val width = round3(minOf(2.0, wall.to - wall.from))
+        showBayDialog(room, null, Bay(BayType.ANGLED, wall.side, 0.0, width, 0.6), along, wall.from to wall.to)
+    }
+
+    override fun onBayEdit(room: Room, bay: Bay) {
+        val (a, z) = bay.span(room)
+        val centre = (a + z) / 2
+        // The outside stretch of wall the bay sits on limits how wide it can grow.
+        val wall = plan.wallLayout().walls.firstOrNull {
+            it.room === room && it.side == bay.side && it.neighbour == null && centre in it.from..it.to
+        }
+        val lo = wall?.from ?: if (bay.side.horizontal) room.x else room.y
+        val hi = wall?.to ?: (lo + if (bay.side.horizontal) room.width else room.depth)
+        showBayDialog(room, bay, bay, centre, lo to hi)
+    }
 
     // --- rooms ---
 
@@ -400,7 +418,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 plan.rooms(b.planView.floor).count { !it.unallocated },
                 fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netArea(it) }),
                 fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netVolume(it) }),
-                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / wall · drag selected: move" else "Drag: pan · hold: select room / wall · drag selected: move",
+                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / add bay · 2× tap: edit room / wall" else "Drag: pan · hold: select room / add bay · 2× tap: edit room / wall",
             )
         }
         b.editButton.isEnabled = room != null
@@ -435,7 +453,15 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .show()
     }
 
+    /** True while a save is writing files; a second save then would write the same files at once. */
+    @Volatile private var saving = false
+
     private fun save() {
+        if (saving) {
+            Toast.makeText(this, "Still saving…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        saving = true
         val snapshot = plan.copy()
         Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
         AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³ to ${PlanStorage.locationLabel(this)}")
@@ -447,6 +473,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 .onFailure { AppLog.e("Save failed", it) }
             // Written last, so it records how the save went - even a failed one.
             val log = runCatching { PlanStorage.saveLog(this, snapshot) }.onFailure { AppLog.e("Could not write log file", it) }
+            saving = false
             runOnUiThread {
                 result.onSuccess { names ->
                     val all = names + listOfNotNull(log.getOrNull()?.let { "${PlanStorage.baseName(snapshot)}.txt" })
@@ -528,6 +555,93 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    // --- bay windows ---
+
+    /**
+     * Adds a bay window ([existing] null) or changes one: type, depth out from
+     * the wall and width along it. The bay stays centred on [centre] (plan
+     * metres along the wall) within [range], the outside stretch of wall.
+     */
+    private fun showBayDialog(room: Room, existing: Bay?, initial: Bay, centre: Double, range: Pair<Double, Double>) {
+        val pad = dp(24)
+        val types = BayType.entries
+        val group = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val buttons = types.associateWith { t ->
+            RadioButton(this).apply {
+                id = View.generateViewId()
+                text = t.label
+                group.addView(this)
+            }
+        }
+        buttons.getValue(initial.type).isChecked = true
+        fun field(hint: String, value: Double): Pair<TextInputLayout, TextInputEditText> {
+            val edit = TextInputEditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                setText(fmtM(value))
+            }
+            return TextInputLayout(this).apply {
+                this.hint = hint
+                addView(edit)
+            } to edit
+        }
+        val (depthLayout, depthInput) = field("Depth out from the wall (m)", initial.depth)
+        val (widthLayout, widthInput) = field("Width along the wall (m)", initial.width)
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp(8), pad, 0)
+            addView(group)
+            addView(depthLayout)
+            addView(widthLayout)
+        }
+        val available = range.second - range.first
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(if (existing == null) "Add bay window" else "Bay window")
+            .setMessage("${room.name}, ${initial.side.label} wall · up to ${fmtM(available)} m wide here")
+            .setView(ScrollView(this).apply { addView(body) })
+            .setPositiveButton("OK", null)
+            .setNegativeButton("Cancel", null)
+            .apply { if (existing != null) setNeutralButton("Remove", null) }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val type = buttons.entries.first { it.value.isChecked }.key
+                val depth = depthInput.text.toString().trim().replace(',', '.').toDoubleOrNull()
+                val width = widthInput.text.toString().trim().replace(',', '.').toDoubleOrNull()
+                depthLayout.error = if (depth == null || depth <= 0 || depth > 5) "Enter a depth in metres, e.g. 0.6" else null
+                widthLayout.error = if (width == null || width <= 0) "Enter a width in metres, e.g. 2.0" else null
+                if (depth == null || width == null || depthLayout.error != null || widthLayout.error != null) return@setOnClickListener
+                val start = fitBay(centre, round3(width), range.first, range.second)
+                if (start == null) {
+                    widthLayout.error = "At most ${fmtM(available)} m on this wall"
+                    return@setOnClickListener
+                }
+                val sideStart = if (initial.side.horizontal) room.x else room.y
+                val bay = Bay(type, initial.side, round3(start - sideStart), round3(width), round3(depth))
+                // Bays on the same wall mustn't overlap.
+                val others = room.bays.filter { it != existing && it.side == bay.side }
+                val (a, z) = bay.span(room)
+                if (others.any { o -> o.span(room).let { (p, q) -> a < q - 1e-6 && z > p + 1e-6 } }) {
+                    widthLayout.error = "Overlaps another bay on this wall"
+                    return@setOnClickListener
+                }
+                pushUndo()
+                room.bays = if (existing == null) room.bays + bay else room.bays.map { if (it == existing) bay else it }
+                AppLog.i((if (existing == null) "Added " else "Changed ") + "${bay.describe()} to '${room.name}' (${room.floor.title})")
+                changed()
+                b.planView.select(room.id)
+                dialog.dismiss()
+            }
+            if (existing != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                pushUndo()
+                room.bays = room.bays - existing
+                AppLog.i("Removed ${existing.describe()} from '${room.name}' (${room.floor.title})")
+                changed()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     // --- walls ---
@@ -834,8 +948,101 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                     "Built ${BuildConfig.BUILD_DATE}\n" +
                     "github.com/${BuildConfig.GITHUB_REPO}"
             )
-            .setPositiveButton("OK", null)
+            .setPositiveButton("Check for update") { _, _ -> checkForUpdate() }
+            .setNeutralButton("Reinstall ${BuildConfig.VERSION_NAME}") { _, _ -> reinstallThisVersion() }
+            .setNegativeButton("Close", null)
             .show()
+    }
+
+    // --- updates from GitHub ---
+
+    private fun checkForUpdate() {
+        val current = BuildConfig.VERSION_NAME
+        Toast.makeText(this, "Checking GitHub…", Toast.LENGTH_SHORT).show()
+        thread {
+            val result = runCatching { Updater.latest() }
+            runOnUiThread {
+                result.onFailure {
+                    AppLog.e("Update check failed", it)
+                    Toast.makeText(this, "Couldn't reach GitHub: ${it.message}", Toast.LENGTH_LONG).show()
+                }.onSuccess { latest ->
+                    val cmp = Updater.compare(latest.version, current)
+                    AppLog.i("Update check: latest ${latest.tag}, this is $current")
+                    val builder = MaterialAlertDialogBuilder(this).setTitle("Updates")
+                    when {
+                        cmp > 0 -> builder
+                            .setMessage("Version ${latest.version} is available (you have $current).\n\n${latest.notes.take(600)}")
+                            .setPositiveButton("Download and install") { _, _ -> downloadAndInstall(latest) }
+                            .setNegativeButton("Not now", null)
+                        cmp == 0 -> builder
+                            .setMessage("You have the latest version, $current.")
+                            .setPositiveButton("OK", null)
+                            .setNeutralButton("Reinstall") { _, _ -> downloadAndInstall(latest) }
+                        else -> builder
+                            .setMessage("This version ($current) is newer than the latest release on GitHub (${latest.version}).")
+                            .setPositiveButton("OK", null)
+                    }
+                    builder.show()
+                }
+            }
+        }
+    }
+
+    private fun reinstallThisVersion() {
+        val current = BuildConfig.VERSION_NAME
+        Toast.makeText(this, "Finding v$current on GitHub…", Toast.LENGTH_SHORT).show()
+        thread {
+            val result = runCatching { Updater.forVersion(current) }
+            runOnUiThread {
+                result.onFailure {
+                    AppLog.e("Reinstall lookup failed", it)
+                    Toast.makeText(this, "Couldn't reach GitHub: ${it.message}", Toast.LENGTH_LONG).show()
+                }.onSuccess { release ->
+                    if (release == null) {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Not on GitHub")
+                            .setMessage("Version $current hasn't been released on GitHub, so it can't be reinstalled from there. Check for update finds the latest release.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    } else {
+                        downloadAndInstall(release)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Downloads the release's APK with a progress dialog, then opens Android's installer. */
+    private fun downloadAndInstall(release: Updater.Release) {
+        val status = TextView(this).apply {
+            text = "Downloading ${release.tag}…"
+            setPadding(dp(24), dp(16), dp(24), dp(8))
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Energy Plan ${release.version}")
+            .setView(status)
+            .setCancelable(false)
+            .show()
+        AppLog.i("Downloading ${release.tag} from ${release.apkUrl}")
+        thread {
+            val result = runCatching {
+                Updater.download(this, release) { pct -> runOnUiThread { status.text = "Downloading ${release.tag}…  $pct%" } }
+            }
+            runOnUiThread {
+                dialog.dismiss()
+                result.onFailure {
+                    AppLog.e("Download failed", it)
+                    Toast.makeText(this, "Download failed: ${it.message}", Toast.LENGTH_LONG).show()
+                }.onSuccess { apk ->
+                    AppLog.i("Downloaded ${apk.length() / 1024} KB; opening the installer")
+                    // Autosaved already, so the plan survives the app being replaced.
+                    PlanStorage.autosave(this, plan)
+                    if (!Updater.install(this, apk)) {
+                        Toast.makeText(this, "Allow Energy Plan to install apps, then come back and try again", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
     }
 
     companion object {

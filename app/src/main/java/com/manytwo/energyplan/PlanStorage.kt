@@ -80,6 +80,8 @@ object PlanStorage {
      */
     fun save(ctx: Context, plan: Plan): List<String> {
         val base = baseName(plan)
+        // A picked folder is listed once, not once per file: cloud providers are slow to list.
+        known = customFolder(ctx)?.listFiles()?.associateBy { it.name ?: "" }?.toMutableMap()
         val written = mutableListOf<String>()
         fun record(name: String, uri: Uri) {
             written += name
@@ -114,8 +116,12 @@ object PlanStorage {
             pdf.close()
         }
         removeStalePages(ctx, base, written)
+        known = null
         return written
     }
+
+    /** The picked folder's files by name, while a save is running. */
+    private var known: MutableMap<String, DocumentFile>? = null
 
     /**
      * Deletes this plan's page JPGs from the same day that this save didn't
@@ -126,7 +132,7 @@ object PlanStorage {
         fun stale(name: String?) = name != null && name.startsWith("$base.") && name.endsWith(".jpg") && name !in written
         val folder = customFolder(ctx)
         if (folder != null) {
-            for (f in folder.listFiles()) if (stale(f.name) && f.delete()) AppLog.i("Removed old ${f.name}")
+            for (f in known?.values ?: folder.listFiles().toList()) if (stale(f.name) && f.delete()) AppLog.i("Removed old ${f.name}")
             return
         }
         val cr = ctx.contentResolver
@@ -170,7 +176,8 @@ object PlanStorage {
         val folder = customFolder(ctx)
         if (folder != null) {
             // A generic type stops the provider adding its own extension to a name that already has one.
-            val file = folder.findFile(name) ?: folder.createFile(if (mime == "application/json") "application/octet-stream" else mime, name)
+            val file = (known?.get(name) ?: if (known == null) folder.findFile(name) else null)
+                ?: folder.createFile(if (mime == "application/json") "application/octet-stream" else mime, name)?.also { known?.put(name, it) }
                 ?: throw IOException("Could not create $name in ${folder.name}")
             (ctx.contentResolver.openOutputStream(file.uri, "wt") ?: throw IOException("Could not write $name")).use(block)
             return file.uri

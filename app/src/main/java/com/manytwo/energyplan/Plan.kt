@@ -52,9 +52,12 @@ data class Room(
      * before, but isn't a room - it's left out of every area and volume total.
      */
     var unallocated: Boolean = false,
+    /** Bay windows on its outside walls; they belong to this floor only. Replaced, never changed in place. */
+    var bays: List<Bay> = emptyList(),
 ) {
-    val area get() = width * depth
-    val volume get() = width * depth * height
+    /** Floor area: the rectangle plus any bay windows. */
+    val area get() = width * depth + bays.sumOf { it.area }
+    val volume get() = area * height
 
     fun contains(px: Double, py: Double) =
         px >= x && px <= x + width && py >= y && py <= y + depth
@@ -124,7 +127,7 @@ class Plan(
         val originals = rooms.filter { it.part == part && it.floor == from }
         var next = nextId()
         val ids = originals.associate { it.id to next++ }
-        val copies = originals.map { it.copy(id = ids.getValue(it.id), floor = to) }
+        val copies = originals.map { it.copy(id = ids.getValue(it.id), floor = to, bays = emptyList()) }
         rooms += copies
         for ((key, spec) in wallOverrides.toMap()) {
             val (pair, side) = key.split(':')
@@ -223,6 +226,17 @@ class Plan(
                 put("floor", r.floor.label)
                 put("buildingPart", r.part.label)
                 put("unallocated", r.unallocated)
+                if (r.bays.isNotEmpty()) put("bays", JSONArray().apply {
+                    for (b in r.bays) put(JSONObject().apply {
+                        put("type", b.type.label)
+                        put("side", b.side.label)
+                        put("offset", round3(b.offset))
+                        put("width", round3(b.width))
+                        put("depth", round3(b.depth))
+                        put("area", round3(b.area))
+                        put("perimeter", round3(b.perimeter))
+                    })
+                })
                 put("x", r.x)
                 put("y", r.y)
                 put("width", r.width)
@@ -341,6 +355,16 @@ class Plan(
                         part = BuildingPart.parse(r.optString("buildingPart")) ?: BuildingPart.MAIN,
                         floor = Floor.parse(r.optString("floor")) ?: Floor.GROUND,
                         unallocated = r.optBoolean("unallocated", false),
+                        bays = r.optJSONArray("bays")?.let { arr ->
+                            (0 until arr.length()).mapNotNull { k ->
+                                val b = arr.getJSONObject(k)
+                                val side = Side.entries.firstOrNull { it.label == b.optString("side") } ?: return@mapNotNull null
+                                Bay(
+                                    BayType.parse(b.optString("type")) ?: BayType.SQUARE, side,
+                                    b.getDouble("offset"), b.getDouble("width"), b.getDouble("depth"),
+                                )
+                            }
+                        } ?: emptyList(),
                     )
                 )
             }

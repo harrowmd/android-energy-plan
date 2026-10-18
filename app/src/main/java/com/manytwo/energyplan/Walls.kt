@@ -80,8 +80,16 @@ class Wall(
     val custom: Boolean,
     /** Space between this room's face and the neighbour's (0 when they touch). */
     val gap: Double = 0.0,
+    /** Extra length from bay windows on this stretch: each bay's outline less the width it replaces. */
+    val bayExtra: Double = 0.0,
 ) {
-    val length get() = round3(to - from)
+    /** Along the room's face, plus the extra round any bay windows. */
+    val length get() = round3(to - from + bayExtra)
+
+    /** The bays on this stretch of wall (outside walls only). */
+    val bays get() = if (neighbour != null) emptyList() else room.bays.filter { b ->
+        b.side == side && b.span(room).let { (a, z) -> (a + z) / 2 in from..to }
+    }
 
     /** The room's face: y for top/bottom walls, x for left/right ones. */
     val face
@@ -178,7 +186,10 @@ fun Plan.wallLayout(): WallLayout {
                 val key = wallKey(r, side, n)
                 val spec = wallOverrides[key]
                 val type = spec?.type ?: if (n == null) WallType.EXTERNAL else WallType.INTERNAL
-                all += Wall(key, r, side, n, s0, s1, type, spec?.thickness ?: type.defaultThickness, spec != null, nb?.second ?: 0.0)
+                val extra = if (n != null) 0.0 else r.bays.filter { b ->
+                    b.side == side && b.span(r).let { (p, q) -> (p + q) / 2 in s0..s1 }
+                }.sumOf { it.perimeter - it.width }
+                all += Wall(key, r, side, n, s0, s1, type, spec?.thickness ?: type.defaultThickness, spec != null, nb?.second ?: 0.0, extra)
             }
         }
     }
@@ -240,7 +251,8 @@ fun Plan.bounds(layout: WallLayout = wallLayout(), floor: Floor? = null): Double
     if (rs.isEmpty()) return null
     val rects = rs.map { doubleArrayOf(it.x, it.y, it.x + it.width, it.y + it.depth) } +
         layout.walls.filter { floor == null || it.room.floor == floor }.map { it.rect } +
-        layout.corners.filter { floor == null || it.room.floor == floor }.map { it.rect }
+        layout.corners.filter { floor == null || it.room.floor == floor }.map { it.rect } +
+        rs.flatMap { it.bayBoxes(WallType.EXTERNAL.defaultThickness) }
     return doubleArrayOf(rects.minOf { it[0] }, rects.minOf { it[1] }, rects.maxOf { it[2] }, rects.maxOf { it[3] })
 }
 

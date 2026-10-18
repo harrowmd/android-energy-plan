@@ -19,7 +19,7 @@ works out each room's floor area and volume, plus the totals.
   create rooms by accident; with it off, a one-finger drag pans the plan.
 - **Select:** long-press a room (a short tap doesn't select, so it can't happen by accident; a tap on empty space clears the selection). **Move:** keep holding and drag, or drag the selected room; its edges snap to
   neighbouring rooms' edges (or the 10 cm grid).
-- **Edit sizes:** double-tap a room, or select it and tap **Edit**.
+- **Edit sizes:** double-tap inside a room, or select it and tap **Edit**.
 - **Floors:** every room is on a floor: **Basement**, **Ground** or **1st**–
   **7th**. The screen shows one floor at a time; tap the floor name in the
   toolbar to switch. The nearest other floor is drawn as faint dashed outlines
@@ -47,7 +47,7 @@ works out each room's floor area and volume, plus the totals.
   a wall are drawn touching, and the wall is drawn centred on the join, half
   in each room. Walls with nothing beyond them wrap around the outside. Every
   wall starts as **External**, unless another room touches it (within 15 cm),
-  which makes that stretch **Internal**. **Long-press a wall** to change its
+  which makes that stretch **Internal**. **Double-tap a wall** to change its
   type or thickness; **Automatic** puts it back.
 
   | Type | Default thickness | Default colour |
@@ -68,6 +68,14 @@ works out each room's floor area and volume, plus the totals.
   floor's drawing and a Summary section after the last floor. Unallocated
   space adds no area, but its outside walls still count towards HLP and PWL
   (for its part and floor); a wall between it and a room counts for the room.
+- **Bay windows:** **long-press an outside wall** to add a bay there: choose
+  **Angled** (45° sides), **Square** or **Bow** (a circular arc), its depth out
+  from the wall and its width along it. It's centred where you pressed, within
+  that stretch of wall. The bay's floor adds to the room's area and volume, and
+  the wall follows its outline (same type and thickness), so the wall - and
+  HLP or PWL - gets longer by the bay's outline less its width. Long-press a
+  bay to change or remove it. Bays belong to their floor: **Add floor** and
+  **Add basement** don't copy them.
 - **Delete:** select a room and tap **Delete**, then choose **Delete
   completely** (the room and its walls go) or **Make unallocated**: the space
   and its outside walls stay exactly as they are (there's no wall between
@@ -156,6 +164,11 @@ height (weighted by area), `hlp` (heat loss perimeter: External, Sheltered and
 Glazing walls) and `pwl` (party wall length), in metres; `dimensionsTotal`
 adds them up.
 
+A room's `bays` (when it has any) give each bay's `type` (Angled, Square,
+Bow), `side`, `offset` (from the left/top end of that side), `width`, `depth`,
+`area` and `perimeter`; the room's areas and volume include them, and the
+wall's `length` includes the extra round the bay.
+
 `walls` lists every run of wall: its floor, the room it bounds (id and name),
 which side, the room on the other side (id and name, `null` for none), its type, thickness and length in metres,
 and its end points along the room's inside face. A wall shared by two rooms is
@@ -174,7 +187,20 @@ adb install -r app/build/outputs/apk/debug/m21energyplan.apk
 
 Requires the Android SDK (platform 36) and JDK 17. Runs on Android 10 or later.
 
+## Updating
+
+**⋮ → About** has **Check for update**, which looks up the latest GitHub
+release and, if it's newer, downloads `m21energyplan.apk` and opens Android's
+installer; and **Reinstall** (this version), which fetches this version's
+release APK again. The first time, Android asks you to allow Energy Plan to
+install apps. The plan on screen and the settings are kept.
+
 ## Version history
+
+- **v1.8** — Bay windows (Angled, Square, Bow): long-press an outside wall;
+  they add area and wall length (HLP/PWL). Double-tap a wall for its type.
+  About → Check for update / Reinstall from GitHub. One save at a time;
+  faster saves to cloud folders.
 
 - **v1.7.3** — Notes on the PDF/JPG pages wrap instead of running off the page.
 

@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
@@ -37,6 +38,9 @@ class PlanRenderer(private val d: Float) {
     }
     private val selectedLine = Paint(outline).apply { color = 0xFFE67E00.toInt(); strokeWidth = 3.5f * d }
     private val wallFill = Paint()
+    private val bayWall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeJoin = Paint.Join.MITER; strokeCap = Paint.Cap.SQUARE
+    }
     private val wallHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF000000.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f * d
         pathEffect = DashPathEffect(floatArrayOf(6f * d, 4f * d), 0f)
@@ -145,7 +149,7 @@ class PlanRenderer(private val d: Float) {
      * priority types go first, so External ends up on top where walls meet.
      * [highlight] is the key of a wall to outline (the one being edited).
      */
-    fun drawWalls(c: Canvas, layout: WallLayout, scale: Float, offX: Float, offY: Float, highlight: String? = null) {
+    fun drawWalls(c: Canvas, layout: WallLayout, scale: Float, offX: Float, offY: Float, highlight: String? = null, selectedId: Long? = null) {
         fun screen(m: DoubleArray): RectF {
             val rf = RectF(
                 offX + (m[0] * scale).toFloat(), offY + (m[1] * scale).toFloat(),
@@ -159,8 +163,23 @@ class PlanRenderer(private val d: Float) {
         }
         for (w in layout.walls.sortedBy { it.type.ordinal }) {
             wallFill.color = WallColors[w.type]
-            c.drawRect(screen(w.rect), wallFill)
+            val bays = w.bays
+            if (bays.isEmpty()) {
+                c.drawRect(screen(w.rect), wallFill)
+                continue
+            }
+            // The straight wall, with a gap where each bay opens out of it.
+            val rc = w.rect
+            var parts = listOf(w.from to w.to)
+            for (b in bays) {
+                val (a, z) = b.span(w.room)
+                parts = parts.flatMap { (p, q) -> listOf(p to min(q, a), max(p, z) to q).filter { it.second - it.first > 1e-6 } }
+            }
+            for ((p, q) in parts) {
+                c.drawRect(screen(if (w.side.horizontal) doubleArrayOf(p, rc[1], q, rc[3]) else doubleArrayOf(rc[0], p, rc[2], q)), wallFill)
+            }
         }
+        for (w in layout.walls) for (b in w.bays) drawBay(c, w, b, scale, offX, offY, w.room.id == selectedId)
         for (k in layout.corners.sortedBy { it.type.ordinal }) {
             wallFill.color = WallColors[k.type]
             c.drawRect(screen(k.rect), wallFill)
@@ -168,6 +187,31 @@ class PlanRenderer(private val d: Float) {
         if (highlight != null) {
             for (w in layout.walls) if (w.key == highlight) c.drawRect(screen(w.rect).apply { inset(-3f * d, -3f * d) }, wallHighlight)
         }
+    }
+
+    /**
+     * A bay window: the wall follows its outline (its full thickness outside
+     * the bay), then the bay's floor is filled like the room it belongs to.
+     */
+    private fun drawBay(c: Canvas, w: Wall, b: Bay, scale: Float, offX: Float, offY: Float, selected: Boolean) {
+        val pts = b.outline(w.room).map { (offX + it[0] * scale).toFloat() to (offY + it[1] * scale).toFloat() }
+        val path = Path().apply {
+            moveTo(pts[0].first, pts[0].second)
+            for ((x, y) in pts.drop(1)) lineTo(x, y)
+        }
+        // Stroked twice as thick, centred on the outline; the room and the bay's own floor cover the inner half.
+        bayWall.color = WallColors[w.type]
+        bayWall.strokeWidth = max(1.5f, (2 * w.thickness * scale).toFloat())
+        c.save()
+        c.clipOutRect(screenRect(w.room, scale, offX, offY))
+        c.drawPath(path, bayWall)
+        c.restore()
+        val floor = when {
+            selected -> fillSelected
+            w.room.unallocated -> fillUnallocated
+            else -> fill
+        }
+        c.drawPath(Path(path).apply { close() }, floor)
     }
 
     /**
@@ -532,7 +576,7 @@ class PlanRenderer(private val d: Float) {
             val out = mutableListOf(head)
             for (r in plan.rooms.sortedBy { it.floor }) out += Line(rowH, head) { c, top ->
                 val net = plan.netArea(r)
-                val mark = if (net < round3(r.area)) " *" else ""
+                val mark = (if (net < round3(r.area)) " *" else "") + if (r.bays.isNotEmpty()) " †" else ""
                 val (a, v) = if (r.unallocated) "(${fmtM(net)})" to "(${fmtM(plan.netVolume(r))})" else fmtM(net) to fmtM(plan.netVolume(r))
                 cells(c, top, rowH, left, w, cols, 3, listOf(r.name + mark, r.floor.label, r.part.label, fmtM(r.width), fmtM(r.depth), fmtM(r.height), a, v), if (r.unallocated) p.muted else p.body)
             }
@@ -550,6 +594,9 @@ class PlanRenderer(private val d: Float) {
                 cells(c, top, rowH, left, w, cols, 3, listOf("  ${t.part.label} total", rooms(t.rooms), "", "", "", "", fmtM(t.area), fmtM(t.volume)), p.body)
             }
             if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) out += noteLines(p, "* Area and volume exclude the part covered by a room on top.", left, w, rowH)
+            if (plan.rooms.any { it.bays.isNotEmpty() }) {
+                out += noteLines(p, "† Area and volume include bay windows (width × depth is the main rectangle only).", left, w, rowH)
+            }
             if (plan.rooms.any { it.unallocated }) {
                 out += noteLines(p, "Unallocated space (grey, in brackets, ${fmtM(plan.unallocatedArea)} m² in all) is not included in the totals.", left, w, rowH)
             }

@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewConfiguration
+import android.widget.Toast
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
@@ -28,8 +29,8 @@ import kotlin.math.round
  *    short tap doesn't, so rooms aren't selected by accident. Keep holding
  *    and drag, or drag the selected room later, to move it. A tap on empty
  *    space clears the selection.
- *  - Double-tap a room to edit its sizes.
- *  - Long-press a wall to change its type or thickness.
+ *  - Double-tap a room to edit its sizes, or a wall to change its type or thickness.
+ *  - Long-press an outside wall to add a bay window there, or a bay to change or remove it.
  *  - Two fingers pan and pinch-zoom.
  * Only the rooms on [floor] are shown and can be touched; the nearest other
  * floor with rooms is drawn faintly underneath, to line rooms up against.
@@ -44,7 +45,11 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         fun onEditRequested(room: Room)
         fun onBeforeMove()
         fun onRoomMoved()
+        /** The wall's type and thickness dialog (double-tap on a wall). */
         fun onWallLongPress(wall: Wall)
+        /** Double-tap on an outside wall, [along] metres along the plan's x (top/bottom walls) or y (left/right). */
+        fun onBayRequested(wall: Wall, along: Double)
+        fun onBayEdit(room: Room, bay: Bay)
     }
 
     var listener: Listener? = null
@@ -128,7 +133,13 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         }
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            roomAt(e.x, e.y)?.let {
+            // On a wall: its type and thickness. In a room (or its bay): the room's sizes.
+            val wall = if (bayAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_ON_DP) ?: if (roomAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_REACH_DP) else null else null
+            if (wall != null) {
+                listener?.onWallLongPress(wall)
+                return true
+            }
+            (bayAt(e.x, e.y)?.first ?: roomAt(e.x, e.y))?.let {
                 select(it.id)
                 listener?.onEditRequested(it)
             }
@@ -137,7 +148,15 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
         override fun onLongPress(e: MotionEvent) {
             if (mode != Mode.IDLE) return
-            // On a wall itself it's the wall; inside a room the room; just outside a wall, the wall again.
+            // A bay: change it. On a wall itself: add a bay there. Inside a room: select it.
+            // Just outside a wall: the wall again.
+            bayAt(e.x, e.y)?.let { (room, bay) ->
+                mode = Mode.LONG_PRESS
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                select(room.id)
+                listener?.onBayEdit(room, bay)
+                return
+            }
             val wall = wallAt(e.x, e.y, WALL_ON_DP)
             val room = if (wall == null) roomAt(e.x, e.y) else null
             val nearWall = if (wall == null && room == null) wallAt(e.x, e.y, WALL_REACH_DP) else wall
@@ -153,7 +172,11 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                     // The rest of this touch is ignored, so lifting the finger doesn't pan or move anything.
                     mode = Mode.LONG_PRESS
                     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    listener?.onWallLongPress(nearWall)
+                    if (nearWall.neighbour == null) {
+                        listener?.onBayRequested(nearWall, if (nearWall.side.horizontal) wx(e.x) else wy(e.y))
+                    } else {
+                        Toast.makeText(context, "Bay windows go on outside walls", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
@@ -238,7 +261,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 canvas.restore()
             }
         }
-        renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall)
+        renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall, selectedId)
         plan.room(selectedId)?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
 
         if (draftVisible) {
@@ -408,6 +431,32 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         val y = wy(sy)
         // Topmost room in the stacking order.
         return plan.rooms.lastOrNull { it.floor == floor && it.contains(x, y) }
+    }
+
+    /** The bay window under the touch (inside it, or on its wall), on the floor shown. */
+    private fun bayAt(sx: Float, sy: Float): Pair<Room, Bay>? {
+        val x = wx(sx)
+        val y = wy(sy)
+        val reach = WALL_ON_DP * d / scale
+        for (r in plan.rooms(floor).asReversed()) for (b in r.bays) {
+            val outline = b.outline(r)
+            if (insidePolygon(outline, x, y)) return r to b
+            // On the bay's wall: just outside the outline, within the wall's thickness.
+            val t = WallType.EXTERNAL.defaultThickness + reach
+            val nearOutline = outline.zipWithNext().any { (p, q) -> segmentDistance(x, y, p, q) <= t }
+            val (a, z) = b.span(r)
+            val along = if (b.side.horizontal) x else y
+            if (nearOutline && along > a && along < z && !r.contains(x, y)) return r to b
+        }
+        return null
+    }
+
+    private fun segmentDistance(x: Double, y: Double, p: DoubleArray, q: DoubleArray): Double {
+        val dx = q[0] - p[0]
+        val dy = q[1] - p[1]
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 == 0.0) 0.0 else (((x - p[0]) * dx + (y - p[1]) * dy) / len2).coerceIn(0.0, 1.0)
+        return hypot(x - p[0] - t * dx, y - p[1] - t * dy)
     }
 
     /** The wall nearest the touch, if one is within reach of the finger. */
