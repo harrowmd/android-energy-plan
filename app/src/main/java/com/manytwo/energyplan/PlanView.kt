@@ -45,6 +45,8 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         fun onEditRequested(room: Room)
         fun onBeforeMove()
         fun onRoomMoved()
+        /** A side of the selected room was dragged (after [onBeforeMove]); [removedBays] no longer fitted. */
+        fun onRoomResized(room: Room, side: Side, removedBays: List<Bay>)
         /** The wall's type and thickness dialog (double-tap on a wall). */
         fun onWallLongPress(wall: Wall)
         /** Double-tap on an outside wall, [along] metres along the plan's x (top/bottom walls) or y (left/right). */
@@ -91,7 +93,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     private var offY = 24f * d
     private var fitted = false
 
-    private enum class Mode { IDLE, DRAW, MOVE, PAN, PINCH, LONG_PRESS }
+    private enum class Mode { IDLE, DRAW, MOVE, RESIZE, PAN, PINCH, LONG_PRESS }
 
     private var mode = Mode.IDLE
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -262,7 +264,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             }
         }
         renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall, selectedId)
-        plan.room(selectedId)?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
+        plan.room(selectedId)?.takeIf { it.floor == floor }?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
 
         if (draftVisible) {
             val rect = RectF(sx(min(draftX0, draftX1)), sy(min(draftY0, draftY1)), sx(max(draftX0, draftX1)), sy(max(draftY0, draftY1)))
@@ -287,6 +289,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (mode == Mode.DRAW) draftVisible = false
                 if (mode == Mode.MOVE) finishMove()
+                if (mode == Mode.RESIZE) finishResize()
                 mode = Mode.PINCH
                 setFocus(e, -1)
                 invalidate()
@@ -306,6 +309,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 Mode.IDLE -> if (hypot(e.x - downX, e.y - downY) > touchSlop) startDrag(e)
                 Mode.DRAW -> updateDraft(e.x, e.y)
                 Mode.MOVE -> updateMove(e.x, e.y)
+                Mode.RESIZE -> updateResize(e.x, e.y)
                 Mode.LONG_PRESS -> {}
                 Mode.PAN -> {
                     offX += e.x - lastFocusX
@@ -320,6 +324,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 when (mode) {
                     Mode.DRAW -> finishDraw()
                     Mode.MOVE -> finishMove()
+                    Mode.RESIZE -> finishResize()
                     else -> {}
                 }
                 mode = Mode.IDLE
@@ -327,6 +332,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
             MotionEvent.ACTION_CANCEL -> {
                 if (mode == Mode.MOVE) finishMove()
+                if (mode == Mode.RESIZE) finishResize()
                 draftVisible = false
                 mode = Mode.IDLE
                 invalidate()
@@ -340,7 +346,19 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         val moving = if (r != null && r.id == selectedId) r.id else null
         xSnap = snapLines(moving, horizontal = true)
         ySnap = snapLines(moving, horizontal = false)
-        if (r != null && r.id == selectedId) {
+        val sel = plan.room(selectedId)?.takeIf { it.floor == floor }
+        val edge = sel?.let { edgeAt(it, downX, downY) }
+        if (sel != null && edge != null) {
+            mode = Mode.RESIZE
+            resizeRoom = sel
+            resizeSide = edge
+            resizeOrig = doubleArrayOf(sel.x, sel.y, sel.width, sel.depth)
+            resizeBays = sel.bays
+            xSnap = snapLines(sel.id, horizontal = true)
+            ySnap = snapLines(sel.id, horizontal = false)
+            listener?.onBeforeMove()
+            updateResize(e.x, e.y)
+        } else if (r != null && r.id == selectedId) {
             mode = Mode.MOVE
             moveRoom = r
             moveOrigX = r.x
@@ -358,6 +376,74 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             draftVisible = true
             updateDraft(e.x, e.y)
         }
+    }
+
+    // --- resizing: drag a side of the selected room ---
+
+    private var resizeRoom: Room? = null
+    private var resizeSide = Side.RIGHT
+    private var resizeOrig = DoubleArray(4)
+    private var resizeBays = emptyList<Bay>()
+
+    /** The side of [r] the touch is on or near (in screen space), nearest first; null if none. */
+    private fun edgeAt(r: Room, sx: Float, sy: Float): Side? {
+        val reach = EDGE_REACH_DP * d
+        val l = sx(r.x)
+        val t = sy(r.y)
+        val rr = sx(r.x + r.width)
+        val b = sy(r.y + r.depth)
+        val candidates = mutableListOf<Pair<Side, Float>>()
+        if (sy >= t - reach && sy <= b + reach) {
+            candidates += Side.LEFT to abs(sx - l)
+            candidates += Side.RIGHT to abs(sx - rr)
+        }
+        if (sx >= l - reach && sx <= rr + reach) {
+            candidates += Side.TOP to abs(sy - t)
+            candidates += Side.BOTTOM to abs(sy - b)
+        }
+        return candidates.filter { it.second <= reach }.minByOrNull { it.second }?.first
+    }
+
+    /**
+     * Moves the dragged side to follow the finger, snapped to another room's
+     * wall when close, else to the grid; the opposite side stays put. Bays
+     * on the sides that run along the drag stay where they are on the plan.
+     */
+    private fun updateResize(x: Float, y: Float) {
+        val r = resizeRoom ?: return
+        val (ox, oy, ow, od) = resizeOrig.toList()
+        when (resizeSide) {
+            Side.LEFT -> {
+                val nx = min(snapCoord(ox + (x - downX) / scale, xSnap), ox + ow - MIN_ROOM)
+                r.x = round3(nx); r.width = round3(ox + ow - r.x)
+            }
+            Side.RIGHT -> r.width = round3(max(snapCoord(ox + ow + (x - downX) / scale, xSnap) - ox, MIN_ROOM))
+            Side.TOP -> {
+                val ny = min(snapCoord(oy + (y - downY) / scale, ySnap), oy + od - MIN_ROOM)
+                r.y = round3(ny); r.depth = round3(oy + od - r.y)
+            }
+            Side.BOTTOM -> r.depth = round3(max(snapCoord(oy + od + (y - downY) / scale, ySnap) - oy, MIN_ROOM))
+        }
+        val dx = r.x - ox
+        val dy = r.y - oy
+        r.bays = resizeBays.map { b ->
+            if (b.side.horizontal) b.copy(offset = round3(b.offset - dx)) else b.copy(offset = round3(b.offset - dy))
+        }
+        invalidate()
+    }
+
+    private fun finishResize() {
+        val r = resizeRoom ?: return
+        resizeRoom = null
+        // Bays that no longer fit on their (shorter) side go.
+        val removed = r.bays.filter { b ->
+            val len = if (b.side.horizontal) r.width else r.depth
+            b.offset < -1e-6 || b.offset + b.width > len + 1e-6
+        }
+        if (removed.isNotEmpty()) r.bays = r.bays - removed.toSet()
+        listener?.onRoomResized(r, resizeSide, removed)
+        listener?.onSelectionChanged(r)
+        invalidate()
     }
 
     private fun updateDraft(x: Float, y: Float) {
@@ -500,6 +586,8 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         private const val SNAP_DP = 12f
         private const val GRID = 0.1          // metres
         private const val WALL_REACH_DP = 14f
+        /** How close to a side of the selected room a drag must start to resize it. */
+        private const val EDGE_REACH_DP = 16f
         /** A long-press this close to a wall picks the wall even inside a room. */
         private const val WALL_ON_DP = 6f
         private const val MIN_ROOM = 0.1      // metres

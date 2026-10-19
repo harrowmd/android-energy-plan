@@ -78,19 +78,21 @@ object PlanStorage {
      * file names written. The log is written separately by [saveLog], last,
      * so it records how the save went.
      */
-    fun save(ctx: Context, plan: Plan): List<String> {
+    fun save(ctx: Context, plan: Plan, progress: (done: Int, total: Int) -> Unit = { _, _ -> }): List<String> {
         val base = baseName(plan)
         // A picked folder is listed once, not once per file: cloud providers are slow to list.
         known = customFolder(ctx)?.listFiles()?.associateBy { it.name ?: "" }?.toMutableMap()
         val written = mutableListOf<String>()
+        val pages = PlanRenderer.pages(plan)
+        val total = pages.size + 2  // JSON, the pages, the PDF
         fun record(name: String, uri: Uri) {
             written += name
             AppLog.i("Wrote $name ($uri)")
+            progress(written.size, total)
         }
 
         "$base.json".let { name -> record(name, write(ctx, name, "application/json", image = false) { it.write(plan.toJson().toByteArray()) }) }
 
-        val pages = PlanRenderer.pages(plan)
         for (page in pages) {
             val name = "$base.${page.name}.jpg"
             val bmp = page.bitmap()

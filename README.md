@@ -204,6 +204,15 @@ install apps. The plan on screen and the settings are kept.
 
 ## Version history
 
+- **v1.8.3** — Resize a room by dragging the handle on any side (snaps to
+  walls and the 10 cm grid). The last thickness chosen for a wall type becomes
+  the plan's default for walls created afterwards (existing walls keep theirs).
+  Rooms completely covered by others aren't listed or counted. Labels in
+  tall, narrow rooms turn to read upwards.
+
+- **v1.8.2** — Saving runs as a foreground service with a progress
+  notification, so it finishes even if you leave the app.
+
 - **v1.8.1** — User guide ([USERGUIDE.md](USERGUIDE.md)), also built into the
   app as **⋮ → Help**.
 

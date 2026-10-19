@@ -189,7 +189,7 @@ fun Plan.wallLayout(): WallLayout {
                 val extra = if (n != null) 0.0 else r.bays.filter { b ->
                     b.side == side && b.span(r).let { (p, q) -> (p + q) / 2 in s0..s1 }
                 }.sumOf { it.perimeter - it.width }
-                all += Wall(key, r, side, n, s0, s1, type, spec?.thickness ?: type.defaultThickness, spec != null, nb?.second ?: 0.0, extra)
+                all += Wall(key, r, side, n, s0, s1, type, spec?.thickness ?: thickness(type), spec != null, nb?.second ?: 0.0, extra)
             }
         }
     }
@@ -369,6 +369,6 @@ fun Plan.dimensions(layout: WallLayout = wallLayout()): List<DimRow> {
             rs.isNotEmpty() -> rs.map { it.height }.average()
             else -> byKey[key]?.map { it.height }?.average() ?: 0.0
         }
-        DimRow(key.first, key.second, rs.size, round3(area), round3(height), round3(hlp[key] ?: 0.0), round3(pwl[key] ?: 0.0))
+        DimRow(key.first, key.second, rs.count { shows(it) }, round3(area), round3(height), round3(hlp[key] ?: 0.0), round3(pwl[key] ?: 0.0))
     }
 }

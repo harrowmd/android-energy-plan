@@ -26,7 +26,7 @@
 rectangular rooms, type their exact sizes, mark what each wall is, and save
 the plan as A4 pages (JPG and PDF) plus a data file (JSON) with every area,
 volume and wall length worked out for you.</p>
-<p>This guide covers version 1.8.1 and later. The latest copy is on GitHub:
+<p>This guide covers version 1.8.3 and later. The latest copy is on GitHub:
 <a href="https://github.com/harrowmd/android-energy-plan/blob/main/USERGUIDE.md">https://github.com/harrowmd/android-energy-plan/blob/main/USERGUIDE.md</a></p>
 <h2 id="contents">Contents</h2>
 <ol>
@@ -100,6 +100,11 @@ volume and wall length worked out for you.</p>
 <td>Moves it; edges snap to other rooms and the 10 cm grid</td>
 </tr>
 <tr>
+<td>Drag a handle</td>
+<td>A side of the selected room</td>
+<td>Slides that wall to resize the room</td>
+</tr>
+<tr>
 <td>Tap</td>
 <td>Empty space</td>
 <td>Clears the selection</td>
@@ -156,6 +161,13 @@ rooms start on the floor shown and in the building part you used last.</p>
 <li><strong>Move:</strong> long-press the room and drag, or drag it once selected. Edges
   snap to the edges of other rooms (on any floor) and to a 10 cm grid, so
   neighbouring rooms line up exactly.</li>
+<li><strong>Resize by dragging a wall:</strong> select the room (long-press). An orange
+  handle appears in the middle of each side. Drag a side (start on or near
+  it) to slide that wall in or out; the opposite wall stays put and the size
+  updates as you go. The wall snaps to any other room's wall it lines up
+  with (on this floor or the floor below), otherwise to the 10 cm grid.
+  Bay windows on the other walls stay where they are; one that no longer
+  fits on a shortened wall is removed (Undo brings it back).</li>
 <li><strong>Edit:</strong> double-tap the room, or select it and tap <strong>Edit</strong>. You can
   change its name, floor, building part and sizes. Changing the floor moves
   the view to that floor.</li>
@@ -170,7 +182,8 @@ rooms start on the floor shown and in the building part you used last.</p>
 <p>The room's name, its net floor area, its height (and its building part if
 it isn't <em>Main</em>), with the width along the top wall and the depth along the
 left wall. Labels move to the visible part of a room if another room covers
-part of it, and keep clear of thick walls.</p>
+part of it, and keep clear of thick walls. In a tall, narrow room (a landing
+or shower, say) the label turns to read upwards when that fits better.</p>
 <h2 id="4-walls">4. Walls</h2>
 <h3 id="automatic-walls">Automatic walls</h3>
 <p>Every side of every room gets a wall automatically:</p>
@@ -236,8 +249,13 @@ take care of themselves.</p>
 <p><strong>Double-tap a wall.</strong> The wall is outlined and a dialog shows where it is
 (e.g. <em>Between Kitchen and Dining · 3.50 m long</em>) and its automatic type.</p>
 <ul>
-<li>Pick a <strong>type</strong> – its default thickness is filled in.</li>
-<li>Change the <strong>Thickness (mm)</strong> if the wall is thicker or thinner.</li>
+<li>Pick a <strong>type</strong> – the plan's thickness for that type is filled in.</li>
+<li>Change the <strong>Thickness (mm)</strong> if the wall is thicker or thinner. Only this
+  wall changes, but the thickness also becomes <strong>this plan's default</strong> for
+  that type, used by walls created from then on – new rooms, and new
+  stretches of wall when rooms are moved or resized. (E.g. set one External
+  wall to 528 mm, and rooms added afterwards get 528 mm External walls; the
+  existing walls keep their thickness.)</li>
 <li><strong>OK</strong> saves it; <strong>Automatic</strong> puts the wall back to its automatic type.</li>
 </ul>
 <p>A wall is split into separate pieces wherever the room on the other side
@@ -316,7 +334,10 @@ room and then a WC inside it – the large room's area excludes the WC.</p>
 <li><strong>Bring to front / Send to back</strong> – all the way.</li>
 </ul>
 <p>Items that would change nothing are greyed out. In the room schedule, rooms
-that lose area to a room on top are marked <strong>*</strong>.</p>
+that lose area to a room on top are marked <strong>*</strong>. A room that's <strong>completely covered</strong>
+(nothing of it left) isn't listed or counted anywhere – the schedule's
+footnote says how many were left out. It's still in the plan, so you can
+select it, bring it to the front or delete it.</p>
 <h2 id="9-unallocated-space">9. Unallocated space</h2>
 <p><strong>Delete → Make unallocated</strong> turns a room into unallocated space – for
 example a loft void, stairwell, or the parts of a floor copied with <strong>Add
@@ -411,6 +432,11 @@ named with today's date and the plan name (spaces become <code>_</code>):</p>
   day makes a new set, so earlier days are kept.</li>
 <li>Only one save runs at a time; pressing Save during a save shows <em>Still
   saving…</em>.</li>
+<li>The save carries on if you leave the app or the screen turns off: a
+  <em>Saving My House… 3 of 7 files</em> notification shows its progress, and a
+  <em>Saved 7 files</em> notification appears if you're not in the app when it
+  finishes. (The first time you save, Android asks whether Energy Plan may
+  show notifications; saving works either way.)</li>
 </ul>
 <h3 id="where-files-go--save-location">Where files go – Save location</h3>
 <p>By default, JPGs go to <strong>Pictures/EnergyPlan</strong> (they appear in the gallery)
@@ -542,8 +568,9 @@ confirm. The plan on screen and your settings are kept.</p>
   a wall; double-tap nearer the middle of the room.</li>
 <li><strong>Long-press on a wall between rooms says "Bay windows go on outside
   walls":</strong> bays can only be added to outside walls.</li>
-<li><strong>Saving to a cloud folder is slow:</strong> that's the upload; wait for the
-  <em>Saved</em> message. Use the default folders for speed.</li>
+<li><strong>Saving to a cloud folder is slow:</strong> that's the upload. You can carry on
+  using the phone – the save finishes in the background (watch the
+  notification). Use the default folders for speed.</li>
 <li><strong>Something looks wrong:</strong> <strong>⋮ → Share log</strong> and send the log with a
   description of what happened.</li>
 </ul>

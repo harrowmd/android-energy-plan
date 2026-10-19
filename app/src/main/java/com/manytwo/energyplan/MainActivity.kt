@@ -171,10 +171,28 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     override fun onEditRequested(room: Room) = editRoom(room)
 
     private var moveStart: Pair<Double, Double>? = null
+    private var sizeStart: Pair<Double, Double>? = null
 
     override fun onBeforeMove() {
         pushUndo()
         moveStart = plan.room(b.planView.selectedId)?.let { it.x to it.y }
+        sizeStart = plan.room(b.planView.selectedId)?.let { it.width to it.depth }
+    }
+
+    override fun onRoomResized(room: Room, side: Side, removedBays: List<Bay>) {
+        if (moveStart == (room.x to room.y) && sizeStart == (room.width to room.depth)) {
+            // Snapped back to its old size: nothing to log or undo.
+            undoStack.removeLastOrNull()
+            invalidateOptionsMenu()
+            return
+        }
+        val old = sizeStart?.let { "${fmtM(it.first)} × ${fmtM(it.second)}" } ?: "?"
+        AppLog.i("Resized '${room.name}' (${room.floor.title}) by its ${side.label} wall: $old -> ${fmtM(room.width)} × ${fmtM(room.depth)} m")
+        for (bay in removedBays) AppLog.i("Removed ${bay.describe()} from '${room.name}': it no longer fits")
+        if (removedBays.isNotEmpty()) {
+            Toast.makeText(this, "Removed ${removedBays.size} bay window${if (removedBays.size == 1) "" else "s"} that no longer fit (Undo to bring back)", Toast.LENGTH_LONG).show()
+        }
+        changed()
     }
 
     override fun onRoomMoved() {
@@ -416,10 +434,10 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             else -> String.format(
                 Locale.UK, "%s%d rooms  ·  %s m²  ·  %s m³\n%s",
                 if (plan.floors().size > 1) "${b.planView.floor.title}: " else "",
-                plan.rooms(b.planView.floor).count { !it.unallocated },
+                plan.rooms(b.planView.floor).count { !it.unallocated && plan.shows(it) },
                 fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netArea(it) }),
                 fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netVolume(it) }),
-                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / add bay · 2× tap: edit room / wall" else "Drag: pan · hold: select room / add bay · 2× tap: edit room / wall",
+                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / add bay · drag a side handle: resize · 2× tap: edit" else "Drag: pan · hold: select room / add bay · drag a side handle: resize · 2× tap: edit",
             )
         }
         b.editButton.isEnabled = room != null
@@ -454,40 +472,59 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .show()
     }
 
-    /** True while a save is writing files; a second save then would write the same files at once. */
-    @Volatile private var saving = false
+    /** A save is running (in [SaveService]); a second one would write the same files at once. */
+    private val saving get() = SaveService.running
 
+    /**
+     * Hands the plan to [SaveService], which finishes the save even if the
+     * app is left. The result comes back to [onSaved] while we're on screen.
+     */
     private fun save() {
         if (saving) {
             Toast.makeText(this, "Still saving…", Toast.LENGTH_SHORT).show()
             return
         }
-        saving = true
         val snapshot = plan.copy()
-        Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
         AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³ to ${PlanStorage.locationLabel(this)}")
         AppLog.i("Walls: " + snapshot.wallLayout().totals().joinToString { (t, th, len) -> "${t.label} ${mm(th)} mm ${fmtM(len)} m" })
-        thread {
-            val start = System.currentTimeMillis()
-            val result = runCatching { PlanStorage.save(this, snapshot) }
-            result.onSuccess { AppLog.i("Save finished in ${System.currentTimeMillis() - start} ms") }
-                .onFailure { AppLog.e("Save failed", it) }
-            // Written last, so it records how the save went - even a failed one.
-            val log = runCatching { PlanStorage.saveLog(this, snapshot) }.onFailure { AppLog.e("Could not write log file", it) }
-            saving = false
-            runOnUiThread {
-                result.onSuccess { names ->
-                    val all = names + listOfNotNull(log.getOrNull()?.let { "${PlanStorage.baseName(snapshot)}.txt" })
-                    MaterialAlertDialogBuilder(this)
-                        .setTitle("Saved ${all.size} files")
-                        .setMessage(PlanStorage.locationLabel(this) + "\n\n" + all.joinToString("\n"))
-                        .setPositiveButton("OK", null)
-                        .show()
-                }.onFailure {
-                    Toast.makeText(this, "Save failed: ${it.message}", Toast.LENGTH_LONG).show()
-                }
-            }
+        askForNotificationsOnce()
+        SaveService.start(this, snapshot)
+        Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onSaved(result: Result<List<String>>, snapshot: Plan) {
+        result.onSuccess { all ->
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Saved ${all.size} files")
+                .setMessage(PlanStorage.locationLabel(this) + "\n\n" + all.joinToString("\n"))
+                .setPositiveButton("OK", null)
+                .show()
+        }.onFailure {
+            Toast.makeText(this, "Save failed: ${it.message}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        SaveService.listener = ::onSaved
+    }
+
+    override fun onStop() {
+        SaveService.listener = null
+        super.onStop()
+    }
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        AppLog.i("Notification permission ${if (granted) "granted" else "refused"}")
+    }
+
+    /** The save's progress shows as a notification; ask once (Android 13+). Saving works either way. */
+    private fun askForNotificationsOnce() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        if (prefs.getBoolean("askedNotifications", false)) return
+        prefs.edit().putBoolean("askedNotifications", true).apply()
+        notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /** Lets the user send saves to any folder they can pick (including cloud folders), or back to the defaults. */
@@ -655,7 +692,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val buttons = WallType.menuOrder.associateWith { t ->
             RadioButton(this).apply {
                 id = View.generateViewId()
-                text = swatch(WallColors[t]).append("  ${t.label}  (${mm(t.defaultThickness)} mm)")
+                text = swatch(WallColors[t]).append("  ${t.label}  (${mm(plan.thickness(t))} mm)")
                 group.addView(this)
             }
         }
@@ -670,7 +707,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         buttons.getValue(wall.type).isChecked = true
         group.setOnCheckedChangeListener { _, id ->
             val t = buttons.entries.first { it.value.id == id }.key
-            thickness.setText(mm(t.defaultThickness))
+            thickness.setText(mm(plan.thickness(t)))
         }
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -705,7 +742,16 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 }
                 pushUndo()
                 // Back to automatic when it matches what the app would pick anyway.
-                if (spec == WallSpec(auto, auto.defaultThickness)) plan.wallOverrides.remove(wall.key)
+                // The thickness chosen becomes this plan's default for the type, for walls drawn from now on.
+                // Walls that already follow the old default are fixed at it first, so only this wall changes now.
+                val old = plan.thickness(type)
+                if (old != spec.thickness) {
+                    val keep = plan.wallLayout().walls.filter { !it.custom && it.type == type && it.key != wall.key }
+                    for (w in keep) plan.wallOverrides[w.key] = WallSpec(type, old)
+                    plan.wallDefaults[type] = spec.thickness
+                    AppLog.i("Plan default for ${type.label} walls is now $mmValue mm (${keep.size} existing walls kept at ${mm(old)} mm)")
+                }
+                if (spec == WallSpec(auto, plan.thickness(auto))) plan.wallOverrides.remove(wall.key)
                 else plan.wallOverrides[wall.key] = spec
                 AppLog.i("Wall changed: ${wall.describe()} -> ${type.label} $mmValue mm")
                 changed()

@@ -73,7 +73,21 @@ class Plan(
     val rooms: MutableList<Room> = mutableListOf(),
     /** Walls the user has changed, by [wallKey]; every other wall gets its automatic type. */
     val wallOverrides: MutableMap<String, WallSpec> = mutableMapOf(),
+    /**
+     * This plan's default thickness per wall type: the last thickness chosen
+     * for that type in the wall dialog. Automatic walls (and new rooms) use it.
+     */
+    val wallDefaults: MutableMap<WallType, Double> = mutableMapOf(),
 ) {
+    /** Thickness for automatic walls of [type] in this plan. */
+    fun thickness(type: WallType) = wallDefaults[type] ?: type.defaultThickness
+
+    /** False for a room completely covered by rooms on top: nothing of it is left, so it isn't reported. */
+    fun shows(r: Room) = netArea(r) > 0.0005
+
+    /** Real rooms that can be seen: what room counts and schedules report. */
+    val counted get() = rooms.filter { !it.unallocated && shows(it) }
+
     /** Rooms that count: everything except unallocated space. */
     val allocated get() = rooms.filter { !it.unallocated }
 
@@ -88,17 +102,17 @@ class Plan(
 
     /** (floor, rooms, net area, net volume) for each floor in use, lowest first. */
     fun floorTotals() = allocated.groupBy { it.floor }.toSortedMap().map { (floor, rs) ->
-        FloorTotal(floor, rs.size, round3(rs.sumOf { netArea(it) }), round3(rs.sumOf { netVolume(it) }))
+        FloorTotal(floor, rs.count { shows(it) }, round3(rs.sumOf { netArea(it) }), round3(rs.sumOf { netVolume(it) }))
     }
 
     /** (part, rooms, net area, net volume) for each building part in use, Main first. */
     fun partTotals() = allocated.groupBy { it.part }.toSortedMap().map { (part, rs) ->
-        PartTotal(part, rs.size, round3(rs.sumOf { netArea(it) }), round3(rs.sumOf { netVolume(it) }))
+        PartTotal(part, rs.count { shows(it) }, round3(rs.sumOf { netArea(it) }), round3(rs.sumOf { netVolume(it) }))
     }
 
     fun room(id: Long?) = rooms.firstOrNull { it.id == id }
     fun nextId() = (rooms.maxOfOrNull { it.id } ?: 0L) + 1
-    fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList(), wallOverrides.toMutableMap())
+    fun copy() = Plan(name, rooms.map { it.copy() }.toMutableList(), wallOverrides.toMutableMap(), wallDefaults.toMutableMap())
 
     private fun overlaps(a: Room, b: Room) =
         a.floor == b.floor && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.depth && a.y + a.depth > b.y
@@ -302,6 +316,12 @@ class Plan(
                     put("length", length)
                 })
             })
+            put("wallDefaults", JSONArray().apply {
+                for ((type, t) in wallDefaults.toSortedMap()) put(JSONObject().apply {
+                    put("type", type.label)
+                    put("thickness", t)
+                })
+            })
             put("wallOverrides", JSONArray().apply {
                 for ((key, spec) in wallOverrides.toSortedMap()) put(JSONObject().apply {
                     put("key", key)
@@ -373,6 +393,18 @@ class Plan(
                 val w = overrides!!.getJSONObject(i)
                 val type = WallType.parse(w.optString("type")) ?: continue
                 plan.wallOverrides[w.getString("key")] = WallSpec(type, w.optDouble("thickness", type.defaultThickness))
+            }
+            val defaults = o.optJSONArray("wallDefaults")
+            for (i in 0 until (defaults?.length() ?: 0)) {
+                val w = defaults!!.getJSONObject(i)
+                val type = WallType.parse(w.optString("type")) ?: continue
+                plan.wallDefaults[type] = w.getDouble("thickness")
+            }
+            if (defaults == null) {
+                // Older plans: take each type's most used thickness among the walls the user changed.
+                plan.wallOverrides.values.groupBy { it.type }.forEach { (type, specs) ->
+                    plan.wallDefaults[type] = specs.groupingBy { it.thickness }.eachCount().maxBy { it.value }.key
+                }
             }
             plan.pruneWallOverrides()
             return plan

@@ -38,6 +38,8 @@ class PlanRenderer(private val d: Float) {
     }
     private val selectedLine = Paint(outline).apply { color = 0xFFE67E00.toInt(); strokeWidth = 3.5f * d }
     private val wallFill = Paint()
+    private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE67E00.toInt() }
+    private val handleRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f * d }
     private val bayWall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeJoin = Paint.Join.MITER; strokeCap = Paint.Cap.SQUARE
     }
@@ -141,7 +143,14 @@ class PlanRenderer(private val d: Float) {
 
     /** The orange outline is drawn last, so the selected room shows even if it's underneath others. */
     fun drawSelection(c: Canvas, r: Room, scale: Float, offX: Float, offY: Float) {
-        c.drawRect(screenRect(r, scale, offX, offY), selectedLine)
+        val rect = screenRect(r, scale, offX, offY)
+        c.drawRect(rect, selectedLine)
+        // A handle mid-way along each side: drag it to slide that wall.
+        val rad = 6f * d
+        for ((hx, hy) in listOf(rect.centerX() to rect.top, rect.centerX() to rect.bottom, rect.left to rect.centerY(), rect.right to rect.centerY())) {
+            c.drawCircle(hx, hy, rad, handleFill)
+            c.drawCircle(hx, hy, rad, handleRim)
+        }
     }
 
     /**
@@ -268,29 +277,41 @@ class PlanRenderer(private val d: Float) {
             "${fmtArea(plan.netArea(r))} m²" to infoText,
             "h ${fmtM(r.height)} m" + (if (r.part != BuildingPart.MAIN) "  ·  ${r.part.label}" else "") to infoText,
         )
-        var best: Triple<RectF, Int, Float>? = null
+        class Fit(val area: RectF, val lines: Int, val scale: Float, val turned: Boolean)
+        var best: Fit? = null
         for (block in visible.take(20)) {
             val area = labelArea(rect, block, sides) ?: continue
-            for (n in all.size downTo 1) {
-                val lines = all.take(n)
-                val needW = lines.maxOf { (t, p) -> p.measureText(t) }
-                val needH = lines.sumOf { (_, p) -> (p.textSize * 1.2f).toDouble() }.toFloat()
-                val s = min(1f, min(area.width() / needW, area.height() / needH))
-                if (s < 0.6f) continue
-                val b = best
-                if (b == null || n > b.second || (n == b.second && s > b.third)) best = Triple(area, n, s)
-                break
+            // Across, and - in a space taller than it is wide - also turned to read upwards.
+            for (turned in if (area.height() > area.width()) listOf(false, true) else listOf(false)) {
+                val w = if (turned) area.height() else area.width()
+                val h = if (turned) area.width() else area.height()
+                for (n in all.size downTo 1) {
+                    val lines = all.take(n)
+                    val needW = lines.maxOf { (t, p) -> p.measureText(t) }
+                    val needH = lines.sumOf { (_, p) -> (p.textSize * 1.2f).toDouble() }.toFloat()
+                    val sc = min(1f, min(w / needW, h / needH))
+                    if (sc < 0.6f) continue
+                    // More lines win, then a bigger size; across wins a tie.
+                    val b = best
+                    if (b == null || n > b.lines || (n == b.lines && sc > b.scale + 0.01f)) best = Fit(area, n, sc, turned)
+                    break
+                }
             }
         }
-        val (area, n, s) = best ?: return
-        val lines = all.take(n)
+        val fit = best ?: return
+        val lines = all.take(fit.lines)
         val needH = lines.sumOf { (_, p) -> (p.textSize * 1.2f).toDouble() }.toFloat()
-        var y = area.centerY() - needH * s / 2
+        val cx = fit.area.centerX()
+        val cy = fit.area.centerY()
+        c.save()
+        if (fit.turned) c.rotate(-90f, cx, cy)
+        var y = cy - needH * fit.scale / 2
         for ((text, paint) in lines) {
-            val p = TextPaint(paint).apply { textSize = paint.textSize * s }
+            val p = TextPaint(paint).apply { textSize = paint.textSize * fit.scale }
             y += p.textSize * 1.2f
-            c.drawText(text, area.centerX(), y - p.textSize * 0.25f, p)
+            c.drawText(text, cx, y - p.textSize * 0.25f, p)
         }
+        c.restore()
     }
 
     /** [block] shrunk by padding, and kept clear of any edge dimension running along its side. */
@@ -400,7 +421,7 @@ class PlanRenderer(private val d: Float) {
             for (floor in floors) {
                 out += Page(floor.label, fw, fh) { c ->
                     val r = PlanRenderer(d)
-                    val rooms = plan.rooms(floor).filter { !it.unallocated }
+                    val rooms = plan.rooms(floor).filter { !it.unallocated && plan.shows(it) }
                     header(
                         c, fw, "${plan.name} – ${floor.title}",
                         "$date  ·  ${rooms.size} rooms  ·  ${fmtArea(rooms.sumOf { plan.netArea(it) })} m²  ·  ${fmtArea(rooms.sumOf { plan.netVolume(it) })} m³",
@@ -471,7 +492,7 @@ class PlanRenderer(private val d: Float) {
                 out += Page(name, sw, sh) { c ->
                     header(
                         c, sw, "${plan.name} – Summary" + if (pagesLines.size > 1) " (${i + 1} of ${pagesLines.size})" else "",
-                        "$date  ·  ${plan.allocated.size} rooms  ·  ${floors.size} floor${if (floors.size == 1) "" else "s"}  ·  " +
+                        "$date  ·  ${plan.counted.size} rooms  ·  ${floors.size} floor${if (floors.size == 1) "" else "s"}  ·  " +
                             "${fmtArea(plan.totalArea)} m²  ·  ${fmtArea(plan.totalVolume)} m³",
                     )
                     var y = top0
@@ -574,7 +595,8 @@ class PlanRenderer(private val d: Float) {
                 c.drawLine(left, top + rowH, left + w, top + rowH, p.rule)
             }
             val out = mutableListOf(head)
-            for (r in plan.rooms.sortedBy { it.floor }) out += Line(rowH, head) { c, top ->
+            // A room completely covered by rooms on top has nothing left to report.
+            for (r in plan.rooms.filter { plan.shows(it) }.sortedBy { it.floor }) out += Line(rowH, head) { c, top ->
                 val net = plan.netArea(r)
                 val mark = (if (net < round3(r.area)) " *" else "") + if (r.bays.isNotEmpty()) " †" else ""
                 val (a, v) = if (r.unallocated) "(${fmtM(net)})" to "(${fmtM(plan.netVolume(r))})" else fmtM(net) to fmtM(plan.netVolume(r))
@@ -596,6 +618,10 @@ class PlanRenderer(private val d: Float) {
             if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) out += noteLines(p, "* Area and volume exclude the part covered by a room on top.", left, w, rowH)
             if (plan.rooms.any { it.bays.isNotEmpty() }) {
                 out += noteLines(p, "† Area and volume include bay windows (width × depth is the main rectangle only).", left, w, rowH)
+            }
+            val hidden = plan.rooms.count { !plan.shows(it) }
+            if (hidden > 0) {
+                out += noteLines(p, "$hidden room${if (hidden == 1) " is" else "s are"} completely covered by rooms on top, so not listed.", left, w, rowH)
             }
             if (plan.rooms.any { it.unallocated }) {
                 out += noteLines(p, "Unallocated space (grey, in brackets, ${fmtM(plan.unallocatedArea)} m² in all) is not included in the totals.", left, w, rowH)

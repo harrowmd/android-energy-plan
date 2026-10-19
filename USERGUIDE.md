@@ -5,7 +5,7 @@ rectangular rooms, type their exact sizes, mark what each wall is, and save
 the plan as A4 pages (JPG and PDF) plus a data file (JSON) with every area,
 volume and wall length worked out for you.
 
-This guide covers version 1.8.1 and later. The latest copy is on GitHub:
+This guide covers version 1.8.3 and later. The latest copy is on GitHub:
 <https://github.com/harrowmd/android-energy-plan/blob/main/USERGUIDE.md>
 
 ## Contents
@@ -56,6 +56,7 @@ This guide covers version 1.8.1 and later. The latest copy is on GitHub:
 | Pinch / two fingers | Anywhere | Zooms and pans |
 | Long-press | Inside a room | Selects it (top room where rooms overlap); keep holding and drag to move it |
 | Drag | The selected room | Moves it; edges snap to other rooms and the 10 cm grid |
+| Drag a handle | A side of the selected room | Slides that wall to resize the room |
 | Tap | Empty space | Clears the selection |
 | Double-tap | Inside a room | Opens the room's dialog (name, floor, part, sizes) |
 | Double-tap | On a wall | Opens the wall dialog (type and thickness) |
@@ -91,6 +92,13 @@ rooms start on the floor shown and in the building part you used last.
 - **Move:** long-press the room and drag, or drag it once selected. Edges
   snap to the edges of other rooms (on any floor) and to a 10 cm grid, so
   neighbouring rooms line up exactly.
+- **Resize by dragging a wall:** select the room (long-press). An orange
+  handle appears in the middle of each side. Drag a side (start on or near
+  it) to slide that wall in or out; the opposite wall stays put and the size
+  updates as you go. The wall snaps to any other room's wall it lines up
+  with (on this floor or the floor below), otherwise to the 10 cm grid.
+  Bay windows on the other walls stay where they are; one that no longer
+  fits on a shortened wall is removed (Undo brings it back).
 - **Edit:** double-tap the room, or select it and tap **Edit**. You can
   change its name, floor, building part and sizes. Changing the floor moves
   the view to that floor.
@@ -104,7 +112,8 @@ rooms start on the floor shown and in the building part you used last.
 The room's name, its net floor area, its height (and its building part if
 it isn't *Main*), with the width along the top wall and the depth along the
 left wall. Labels move to the visible part of a room if another room covers
-part of it, and keep clear of thick walls.
+part of it, and keep clear of thick walls. In a tall, narrow room (a landing
+or shower, say) the label turns to read upwards when that fits better.
 
 ## 4. Walls
 
@@ -137,8 +146,13 @@ take care of themselves.
 **Double-tap a wall.** The wall is outlined and a dialog shows where it is
 (e.g. *Between Kitchen and Dining · 3.50 m long*) and its automatic type.
 
-- Pick a **type** – its default thickness is filled in.
-- Change the **Thickness (mm)** if the wall is thicker or thinner.
+- Pick a **type** – the plan's thickness for that type is filled in.
+- Change the **Thickness (mm)** if the wall is thicker or thinner. Only this
+  wall changes, but the thickness also becomes **this plan's default** for
+  that type, used by walls created from then on – new rooms, and new
+  stretches of wall when rooms are moved or resized. (E.g. set one External
+  wall to 528 mm, and rooms added afterwards get 528 mm External walls; the
+  existing walls keep their thickness.)
 - **OK** saves it; **Automatic** puts the wall back to its automatic type.
 
 A wall is split into separate pieces wherever the room on the other side
@@ -229,7 +243,10 @@ Change which room is on top from the ⋮ menu (select a room first):
 - **Bring to front / Send to back** – all the way.
 
 Items that would change nothing are greyed out. In the room schedule, rooms
-that lose area to a room on top are marked **\***.
+that lose area to a room on top are marked **\***. A room that's **completely covered**
+(nothing of it left) isn't listed or counted anywhere – the schedule's
+footnote says how many were left out. It's still in the plan, so you can
+select it, bring it to the front or delete it.
 
 ## 9. Unallocated space
 
@@ -288,6 +305,11 @@ named with today's date and the plan name (spaces become `_`):
   day makes a new set, so earlier days are kept.
 - Only one save runs at a time; pressing Save during a save shows *Still
   saving…*.
+- The save carries on if you leave the app or the screen turns off: a
+  *Saving My House… 3 of 7 files* notification shows its progress, and a
+  *Saved 7 files* notification appears if you're not in the app when it
+  finishes. (The first time you save, Android asks whether Energy Plan may
+  show notifications; saving works either way.)
 
 ### Where files go – Save location
 
@@ -383,8 +405,9 @@ confirm. The plan on screen and your settings are kept.
   a wall; double-tap nearer the middle of the room.
 - **Long-press on a wall between rooms says "Bay windows go on outside
   walls":** bays can only be added to outside walls.
-- **Saving to a cloud folder is slow:** that's the upload; wait for the
-  *Saved* message. Use the default folders for speed.
+- **Saving to a cloud folder is slow:** that's the upload. You can carry on
+  using the phone – the save finishes in the background (watch the
+  notification). Use the default folders for speed.
 - **Something looks wrong:** **⋮ → Share log** and send the log with a
   description of what happened.
 
