@@ -19,15 +19,27 @@ enum class BayType(val label: String) {
 /**
  * A bay window on one outside [side] of a room: [width] along the wall,
  * starting [offset] metres from the start of that side (its left or top
- * end), and [depth] metres out from the room's face. Angled bays have 45°
- * sides (steeper if the bay is too deep for that); bow bays are a circular
- * arc. The bay adds its [area] to the room, and its outline replaces
- * [width] of the wall, so the wall gets [perimeter] - [width] longer.
+ * end), and [depth] metres out from the room's face. Angled bays go
+ * straight out through the wall to its outside skin ([hinge] metres out:
+ * the wall's thickness), then turn in at 45° (steeper if the bay is too
+ * deep for that); bow bays are a circular arc. The bay adds its [area] to
+ * the room, and its outline replaces [width] of the wall, so the wall gets
+ * [perimeter] - [width] longer.
  */
-data class Bay(val type: BayType, val side: Side, val offset: Double, val width: Double, val depth: Double) {
+data class Bay(
+    val type: BayType, val side: Side, val offset: Double, val width: Double, val depth: Double,
+    /** Where an angled bay's sides turn, out from the room's face; kept equal to its wall's thickness by [Plan.fitBayHinges]. */
+    val hinge: Double = 0.0,
+) {
+
+    /** The straight part of an angled bay's sides, through the wall. */
+    private val straight get() = min(hinge, depth)
+
+    /** How deep the angled part is, from the hinge out to the front. */
+    private val slope get() = depth - straight
 
     /** How far in from each end the angled bay's front starts. */
-    private val inset get() = min(depth, width / 2)
+    private val inset get() = min(slope, width / 2)
 
     /** Radius of the bow's arc, through both ends and the point [depth] out at the middle. */
     private val radius get() = (width * width / 4 + depth * depth) / (2 * depth)
@@ -42,7 +54,7 @@ data class Bay(val type: BayType, val side: Side, val offset: Double, val width:
     val area: Double
         get() = when (type) {
             BayType.SQUARE -> width * depth
-            BayType.ANGLED -> (2 * width - 2 * inset) / 2 * depth
+            BayType.ANGLED -> width * straight + (2 * width - 2 * inset) / 2 * slope
             BayType.BOW -> radius * radius / 2 * (arcAngle - sin(arcAngle))
         }
 
@@ -50,7 +62,7 @@ data class Bay(val type: BayType, val side: Side, val offset: Double, val width:
     val perimeter: Double
         get() = when (type) {
             BayType.SQUARE -> width + 2 * depth
-            BayType.ANGLED -> 2 * hypot(inset, depth) + width - 2 * inset
+            BayType.ANGLED -> 2 * straight + 2 * hypot(inset, slope) + width - 2 * inset
             BayType.BOW -> radius * arcAngle
         }
 
@@ -58,7 +70,9 @@ data class Bay(val type: BayType, val side: Side, val offset: Double, val width:
     fun outline(r: Room): List<DoubleArray> {
         val local: List<DoubleArray> = when (type) {
             BayType.SQUARE -> listOf(pt(0.0, 0.0), pt(0.0, depth), pt(width, depth), pt(width, 0.0))
-            BayType.ANGLED -> listOf(pt(0.0, 0.0), pt(inset, depth), pt(width - inset, depth), pt(width, 0.0))
+            BayType.ANGLED ->
+                if (straight > 0) listOf(pt(0.0, 0.0), pt(0.0, straight), pt(inset, depth), pt(width - inset, depth), pt(width, straight), pt(width, 0.0))
+                else listOf(pt(0.0, 0.0), pt(inset, depth), pt(width - inset, depth), pt(width, 0.0))
             BayType.BOW -> {
                 // Centre on the bay's middle line, (radius - depth) back from the face.
                 val cv = depth - radius
@@ -91,6 +105,28 @@ data class Bay(val type: BayType, val side: Side, val offset: Double, val width:
         private const val BOW_STEPS = 24
         private fun pt(u: Double, v: Double) = doubleArrayOf(u, v)
     }
+}
+
+/**
+ * Sets each angled bay's [Bay.hinge] to the thickness of the outside wall
+ * it's in, so its sides turn at the wall's outside skin. Run after any
+ * change: wall thicknesses and bays can both change.
+ */
+fun Plan.fitBayHinges() {
+    for (r in rooms) {
+        if (r.bays.none { it.type == BayType.ANGLED }) continue
+        r.bays = r.bays.map { b ->
+            val t = bayHinge(r, b.type, b.side)
+            if (b.hinge == t) b else b.copy(hinge = t)
+        }
+    }
+}
+
+/** The [Bay.hinge] for a bay of [type] on [side] of [r]: the thickness of that outside wall (angled bays only). */
+fun Plan.bayHinge(r: Room, type: BayType, side: Side): Double {
+    if (type != BayType.ANGLED) return 0.0
+    val spec = wallOverrides[wallKey(r, side, null)]
+    return spec?.thickness ?: thickness(spec?.type ?: WallType.EXTERNAL)
 }
 
 /** Plan-coordinate bounding box of [r]'s bays, grown by [margin]: x0, y0, x1, y1, one per bay. */

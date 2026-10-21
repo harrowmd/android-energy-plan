@@ -72,7 +72,7 @@ works out each room's floor area and volume, plus the totals.
   space adds no area, but its outside walls still count towards HLP and PWL
   (for its part and floor); a wall between it and a room counts for the room.
 - **Bay windows:** **long-press an outside wall** to add a bay there: choose
-  **Angled** (45° sides), **Square** or **Bow** (a circular arc), its depth out
+  **Angled** (sides turn in at 45° from the wall's outside skin), **Square** or **Bow** (a circular arc), its depth out
   from the wall and its width along it. It's centred where you pressed, within
   that stretch of wall. The bay's floor adds to the room's area and volume, and
   the wall follows its outline (same type and thickness), so the wall - and
@@ -169,7 +169,8 @@ adds them up.
 
 A room's `bays` (when it has any) give each bay's `type` (Angled, Square,
 Bow), `side`, `offset` (from the left/top end of that side), `width`, `depth`,
-`area` and `perimeter`; the room's areas and volume include them, and the
+`hinge` (Angled: where the sides turn, out from the room's face - the wall's
+thickness), `area` and `perimeter`; the room's areas and volume include them, and the
 wall's `length` includes the extra round the bay.
 
 `walls` lists every run of wall: its floor, the room it bounds (id and name),
@@ -203,6 +204,10 @@ release APK again. The first time, Android asks you to allow Energy Plan to
 install apps. The plan on screen and the settings are kept.
 
 ## Version history
+
+- **v1.8.4** — Angled bay windows turn in at 45° from the outside skin of
+  the wall (their sides go straight through the wall first), not from its
+  inside face.
 
 - **v1.8.3** — Resize a room by dragging the handle on any side (snaps to
   walls and the 10 cm grid). The last thickness chosen for a wall type becomes

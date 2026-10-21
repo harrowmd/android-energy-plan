@@ -396,6 +396,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     private fun changed() {
+        plan.fitBayHinges()
         PlanStorage.autosave(this, plan)
         b.planView.invalidate()
         updateUi()
@@ -403,6 +404,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     private fun setPlan(p: Plan, fit: Boolean = true) {
+        p.fitBayHinges()
         plan = p
         b.planView.plan = p
         b.planView.floor = startFloor(p, b.planView.floor)
@@ -656,7 +658,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                     return@setOnClickListener
                 }
                 val sideStart = if (initial.side.horizontal) room.x else room.y
-                val bay = Bay(type, initial.side, round3(start - sideStart), round3(width), round3(depth))
+                val bay = Bay(type, initial.side, round3(start - sideStart), round3(width), round3(depth), plan.bayHinge(room, type, initial.side))
                 // Bays on the same wall mustn't overlap.
                 val others = room.bays.filter { it != existing && it.side == bay.side }
                 val (a, z) = bay.span(room)

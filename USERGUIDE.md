@@ -166,11 +166,14 @@ Wall colours can be changed in **⋮ → Settings…**.
 **Long-press an outside wall** where you want the bay. Choose:
 
 - **Type:**
-    - **Angled** – a front parallel to the wall with 45° sides (steeper if the
-      bay is too deep for 45°).
+    - **Angled** – the sides go straight out through the wall, then turn in
+      at 45° from its outside skin (steeper if the bay is too deep for 45°),
+      to a front parallel to the wall. If the wall's thickness changes, the
+      turn moves with it.
     - **Square** – a rectangular box.
     - **Bow** – a circular arc.
-- **Depth out from the wall** (metres).
+- **Depth out from the wall** (metres), from the room's inside face to the
+  inside of the bay's front.
 - **Width along the wall** (metres) – the dialog shows the most that fits on
   that stretch of wall.
 

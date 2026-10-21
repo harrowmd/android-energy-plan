@@ -247,6 +247,7 @@ class Plan(
                         put("offset", round3(b.offset))
                         put("width", round3(b.width))
                         put("depth", round3(b.depth))
+                        if (b.type == BayType.ANGLED) put("hinge", round3(b.hinge))
                         put("area", round3(b.area))
                         put("perimeter", round3(b.perimeter))
                     })
@@ -407,6 +408,7 @@ class Plan(
                 }
             }
             plan.pruneWallOverrides()
+            plan.fitBayHinges()
             return plan
         }
     }
