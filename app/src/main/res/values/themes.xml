@@ -13,4 +13,19 @@
         <item name="android:textColor">@color/part_button_text</item>
         <item name="checkedIconTint">@android:color/white</item>
     </style>
+
+    <!-- Text buttons in the toolbar: compact, so they all fit on a phone. -->
+    <style name="ToolbarButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">5dp</item>
+        <item name="android:paddingEnd">5dp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textSize">14dp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+    </style>
 </resources>

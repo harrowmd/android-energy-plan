@@ -31,6 +31,8 @@ import kotlin.math.round
  *    space clears the selection.
  *  - Double-tap a room to edit its sizes, or a wall to change its type or thickness.
  *  - Long-press an outside wall to add a bay window there, or a bay to change or remove it.
+ *  - Tap a wall to add a door; tap a door to select it, then drag it along
+ *    its wall. Double-tap a door to change or remove it.
  *  - Two fingers pan and pinch-zoom.
  * Only the rooms on [floor] are shown and can be touched; the nearest other
  * floor with rooms is drawn faintly underneath, to line rooms up against.
@@ -52,6 +54,13 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         /** Double-tap on an outside wall, [along] metres along the plan's x (top/bottom walls) or y (left/right). */
         fun onBayRequested(wall: Wall, along: Double)
         fun onBayEdit(room: Room, bay: Bay)
+        /** Tap on a wall: add a door to [side] of [room] (the room on the tapped side of a shared wall), centred near [along]. */
+        fun onDoorRequested(room: Room, side: Side, along: Double)
+        fun onDoorEdit(room: Room, door: Door)
+        /** A door was selected, or the selection cleared ([door] null). */
+        fun onDoorSelected(room: Room?, door: Door?)
+        /** The selected door was dragged along its wall (after [onBeforeMove]) from [old] to [door]. */
+        fun onDoorMoved(room: Room, old: Door, door: Door)
     }
 
     var listener: Listener? = null
@@ -62,10 +71,15 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     var plan: Plan = Plan()
         set(value) {
             field = value
+            selectDoor(null, null)
             select(null)
         }
 
     var selectedId: Long? = null
+        private set
+
+    /** The selected door: its room's id and the door. Selecting a room clears it, and the other way round. */
+    var selectedDoor: Pair<Long, Door>? = null
         private set
 
     /** The floor being shown. */
@@ -73,6 +87,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         set(value) {
             field = value
             if (plan.room(selectedId)?.floor != value) select(null)
+            if (plan.room(selectedDoor?.first)?.floor != value) selectDoor(null, null)
             invalidate()
         }
 
@@ -93,7 +108,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     private var offY = 24f * d
     private var fitted = false
 
-    private enum class Mode { IDLE, DRAW, MOVE, RESIZE, PAN, PINCH, LONG_PRESS }
+    private enum class Mode { IDLE, DRAW, MOVE, RESIZE, DOOR, PAN, PINCH, LONG_PRESS }
 
     private var mode = Mode.IDLE
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -130,11 +145,29 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            if (roomAt(e.x, e.y) == null) select(null)
+            // A door: select it. A wall: add a door there. Empty space: clear the selection.
+            doorAt(e.x, e.y)?.let { (room, door) ->
+                selectDoor(room, door)
+                return true
+            }
+            val wall = if (bayAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_ON_DP) ?: if (roomAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_REACH_DP) else null else null
+            if (wall != null) {
+                val (room, side) = tappedSide(wall, e.x, e.y)
+                selectDoor(null, null)
+                listener?.onDoorRequested(room, side, if (side.horizontal) wx(e.x) else wy(e.y))
+                return true
+            }
+            if (selectedDoor != null) selectDoor(null, null)
+            else if (roomAt(e.x, e.y) == null) select(null)
             return true
         }
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
+            doorAt(e.x, e.y)?.let { (room, door) ->
+                selectDoor(room, door)
+                listener?.onDoorEdit(room, door)
+                return true
+            }
             // On a wall: its type and thickness. In a room (or its bay): the room's sizes.
             val wall = if (bayAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_ON_DP) ?: if (roomAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_REACH_DP) else null else null
             if (wall != null) {
@@ -185,8 +218,22 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     })
 
     fun select(id: Long?) {
+        if (id != null && selectedDoor != null) {
+            selectedDoor = null
+            listener?.onDoorSelected(null, null)
+        }
         selectedId = plan.room(id)?.id
         listener?.onSelectionChanged(plan.room(selectedId))
+        invalidate()
+    }
+
+    /** Selects [door] of [room] (clearing any selected room), or clears the door selection when either is null. */
+    fun selectDoor(room: Room?, door: Door?) {
+        val sel = if (room != null && door != null && door in room.doors) room.id to door else null
+        if (sel == selectedDoor) return
+        if (sel != null && selectedId != null) select(null)
+        selectedDoor = sel
+        listener?.onDoorSelected(if (sel != null) room else null, sel?.second)
         invalidate()
     }
 
@@ -263,7 +310,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 canvas.restore()
             }
         }
-        renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall, selectedId)
+        renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall, selectedId, selectedDoor)
         plan.room(selectedId)?.takeIf { it.floor == floor }?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
 
         if (draftVisible) {
@@ -290,6 +337,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 if (mode == Mode.DRAW) draftVisible = false
                 if (mode == Mode.MOVE) finishMove()
                 if (mode == Mode.RESIZE) finishResize()
+                if (mode == Mode.DOOR) finishDoor()
                 mode = Mode.PINCH
                 setFocus(e, -1)
                 invalidate()
@@ -310,6 +358,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 Mode.DRAW -> updateDraft(e.x, e.y)
                 Mode.MOVE -> updateMove(e.x, e.y)
                 Mode.RESIZE -> updateResize(e.x, e.y)
+                Mode.DOOR -> updateDoor(e.x, e.y)
                 Mode.LONG_PRESS -> {}
                 Mode.PAN -> {
                     offX += e.x - lastFocusX
@@ -325,6 +374,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                     Mode.DRAW -> finishDraw()
                     Mode.MOVE -> finishMove()
                     Mode.RESIZE -> finishResize()
+                    Mode.DOOR -> finishDoor()
                     else -> {}
                 }
                 mode = Mode.IDLE
@@ -333,6 +383,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             MotionEvent.ACTION_CANCEL -> {
                 if (mode == Mode.MOVE) finishMove()
                 if (mode == Mode.RESIZE) finishResize()
+                if (mode == Mode.DOOR) finishDoor()
                 draftVisible = false
                 mode = Mode.IDLE
                 invalidate()
@@ -342,6 +393,17 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     }
 
     private fun startDrag(e: MotionEvent) {
+        val held = doorAt(downX, downY)
+        val door = selectedDoor
+        if (door != null && held != null && held.first.id == door.first && held.second == door.second) {
+            mode = Mode.DOOR
+            doorRoom = held.first
+            doorOrig = held.second
+            doorNow = held.second
+            listener?.onBeforeMove()
+            updateDoor(e.x, e.y)
+            return
+        }
         val r = roomAt(downX, downY)
         val moving = if (r != null && r.id == selectedId) r.id else null
         xSnap = snapLines(moving, horizontal = true)
@@ -354,6 +416,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             resizeSide = edge
             resizeOrig = doubleArrayOf(sel.x, sel.y, sel.width, sel.depth)
             resizeBays = sel.bays
+            resizeDoors = sel.doors
             xSnap = snapLines(sel.id, horizontal = true)
             ySnap = snapLines(sel.id, horizontal = false)
             listener?.onBeforeMove()
@@ -378,12 +441,48 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         }
     }
 
+    // --- doors: drag the selected door along its wall ---
+
+    private var doorRoom: Room? = null
+    private var doorOrig: Door? = null
+    private var doorNow: Door? = null
+
+    /** Slides the door along its side, its edges snapped to the grid, kept within the side. */
+    private fun updateDoor(x: Float, y: Float) {
+        val r = doorRoom ?: return
+        val orig = doorOrig ?: return
+        val cur = doorNow ?: return
+        val horizontal = orig.side.horizontal
+        val base = if (horizontal) r.x else r.y
+        val len = if (horizontal) r.width else r.depth
+        val delta = (if (horizontal) x - downX else y - downY) / scale
+        val start = round((base + orig.offset + delta) / GRID) * GRID
+        val offset = round3((start - base).coerceIn(0.0, max(0.0, len - orig.width)))
+        val moved = orig.copy(offset = offset)
+        if (moved == cur) return
+        r.doors = r.doors.map { if (it == cur) moved else it }
+        doorNow = moved
+        selectedDoor = r.id to moved
+        invalidate()
+    }
+
+    private fun finishDoor() {
+        val r = doorRoom ?: return
+        doorRoom = null
+        val orig = doorOrig ?: return
+        val now = doorNow ?: return
+        listener?.onDoorMoved(r, orig, now)
+        selectedDoor = r.id to now
+        invalidate()
+    }
+
     // --- resizing: drag a side of the selected room ---
 
     private var resizeRoom: Room? = null
     private var resizeSide = Side.RIGHT
     private var resizeOrig = DoubleArray(4)
     private var resizeBays = emptyList<Bay>()
+    private var resizeDoors = emptyList<Door>()
 
     /** The side of [r] the touch is on or near (in screen space), nearest first; null if none. */
     private fun edgeAt(r: Room, sx: Float, sy: Float): Side? {
@@ -428,6 +527,13 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         val dy = r.y - oy
         r.bays = resizeBays.map { b ->
             if (b.side.horizontal) b.copy(offset = round3(b.offset - dx)) else b.copy(offset = round3(b.offset - dy))
+        }
+        // Doors stay where they are on the plan too, but are kept within their side.
+        r.doors = resizeDoors.mapNotNull { dr ->
+            val len = if (dr.side.horizontal) r.width else r.depth
+            if (dr.width > len + 1e-6) return@mapNotNull null
+            val off = dr.offset - if (dr.side.horizontal) dx else dy
+            dr.copy(offset = round3(off.coerceIn(0.0, len - dr.width)))
         }
         invalidate()
     }
@@ -535,6 +641,30 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             if (nearOutline && along > a && along < z && !r.contains(x, y)) return r to b
         }
         return null
+    }
+
+    /** The door under the touch: in its opening, or in the space its leaf swings through. */
+    private fun doorAt(sx: Float, sy: Float): Pair<Room, Door>? {
+        val x = wx(sx)
+        val y = wy(sy)
+        val reach = WALL_ON_DP * d / scale
+        val layout = plan.wallLayout().on(floor)
+        for (r in plan.rooms(floor).asReversed()) for (dr in r.doors) {
+            val sh = layout.doorShape(r, dr) ?: continue
+            for (box in listOf(sh.opening, sh.swept)) {
+                if (x >= box[0] - reach && x <= box[2] + reach && y >= box[1] - reach && y <= box[3] + reach) return r to dr
+            }
+        }
+        return null
+    }
+
+    /** Which room a tap on [wall] is for: on a shared wall, the room on the tapped side of the join. */
+    private fun tappedSide(wall: Wall, sx: Float, sy: Float): Pair<Room, Side> {
+        val n = wall.neighbour ?: return wall.room to wall.side
+        val out = if (wall.side == Side.BOTTOM || wall.side == Side.RIGHT) 1 else -1
+        val centre = wall.face + out * wall.gap / 2
+        val across = if (wall.side.horizontal) wy(sy) else wx(sx)
+        return if ((across - centre) * out > 0) n to wall.side.opposite else wall.room to wall.side
     }
 
     private fun segmentDistance(x: Double, y: Double, p: DoubleArray, q: DoubleArray): Double {

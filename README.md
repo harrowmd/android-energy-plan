@@ -79,13 +79,20 @@ works out each room's floor area and volume, plus the totals.
   HLP or PWL - gets longer by the bay's outline less its width. Long-press a
   bay to change or remove it. Bays belong to their floor: **Add floor** and
   **Add basement** don't copy them.
+- **Doors:** **tap any wall** to add a door (1 m wide to start with): set its
+  width, the side it's hinged on and whether it opens in or out. It's drawn
+  as an opening in the wall with a 40 mm line of the wall's colour along its
+  middle, the door (40 mm, brown) standing open at 45° and a thin black
+  swing arc. Tap a door to select it and drag
+  it along the wall; double-tap it (or Edit) to change or remove it.
 - **Delete:** select a room and tap **Delete**, then choose **Delete
   completely** (the room and its walls go) or **Make unallocated**: the space
   and its outside walls stay exactly as they are (there's no wall between
   two unallocated spaces, but rooms next to one keep theirs). It's shown as
   plain grey hatching and left out of all area and volume totals. Delete on
   an unallocated space removes it completely or restores the room. **Undo** reverses the last
-  change (up to 50 steps).
+  change, as many times as you like (up to 1000 steps), and **Redo** puts
+  it back; the toolbar's step counter shows which step you're on.
 - **Pan and zoom:** use two fingers (or one finger on empty space, when
   one-finger drawing is off). **Fit** zooms to show the whole plan.
 - The ceiling height you last entered is used as the default for the next room.
@@ -173,6 +180,10 @@ Bow), `side`, `offset` (from the left/top end of that side), `width`, `depth`,
 thickness), `area` and `perimeter`; the room's areas and volume include them, and the
 wall's `length` includes the extra round the bay.
 
+A room's `doors` (when it has any) give each door's `side`, `offset` (from
+the left/top end of that side), `width`, `hinge` (Left/Right, seen from
+inside the room facing the wall) and `opens` (In/Out of the room).
+
 `walls` lists every run of wall: its floor, the room it bounds (id and name),
 which side, the room on the other side (id and name, `null` for none), its type, thickness and length in metres,
 and its end points along the room's inside face. A wall shared by two rooms is
@@ -204,6 +215,12 @@ release APK again. The first time, Android asks you to allow Energy Plan to
 install apps. The plan on screen and the settings are kept.
 
 ## Version history
+
+- **v1.8.5** — Doors: tap a wall to add one (width, hinge side, opens
+  in/out), tap to select and drag it along the wall, double-tap to edit.
+  New toolbar, right-aligned: plan name, floor, Undo, step counter, Redo,
+  Fit, Save, ⋮ (the "Energy Plan" title is gone). Undo up to 1000 steps,
+  and Redo.
 
 - **v1.8.4** — Angled bay windows turn in at 45° from the outside skin of
   the wall (their sides go straight through the wall first), not from its

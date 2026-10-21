@@ -15,8 +15,67 @@
         android:background="@color/brand"
         android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar"
         app:popupTheme="@style/ThemeOverlay.Material3.Light"
+        app:contentInsetStart="4dp"
+        app:contentInsetEnd="0dp"
         app:subtitleTextColor="#DDFFFFFF"
-        app:titleTextColor="#FFFFFF" />
+        app:titleTextColor="#FFFFFF">
+
+        <!-- Right-aligned: plan name, floor, Undo, step counter, Redo, Fit, Save; then the ⋮ menu. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end|center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/planName"
+                style="@style/ToolbarButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:gravity="end|center_vertical"
+                android:lineSpacingMultiplier="0.9"
+                android:maxLines="2"
+                android:paddingStart="2dp"
+                android:textSize="13dp"
+                android:textStyle="normal" />
+
+            <TextView
+                android:id="@+id/floorButton"
+                style="@style/ToolbarButton" />
+
+            <TextView
+                android:id="@+id/undoButton"
+                style="@style/ToolbarButton"
+                android:text="Undo" />
+
+            <TextView
+                android:id="@+id/stepCounter"
+                style="@style/ToolbarButton"
+                android:background="@null"
+                android:minWidth="20dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:textColor="#DDFFFFFF"
+                android:textStyle="normal" />
+
+            <TextView
+                android:id="@+id/redoButton"
+                style="@style/ToolbarButton"
+                android:text="Redo" />
+
+            <TextView
+                android:id="@+id/fitButton"
+                style="@style/ToolbarButton"
+                android:text="Fit" />
+
+            <TextView
+                android:id="@+id/saveButton"
+                style="@style/ToolbarButton"
+                android:text="Save" />
+
+        </LinearLayout>
+    </com.google.android.material.appbar.MaterialToolbar>
 
     <com.manytwo.energyplan.PlanView
         android:id="@+id/planView"

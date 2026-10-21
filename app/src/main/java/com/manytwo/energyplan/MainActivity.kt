@@ -42,7 +42,14 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     private lateinit var b: ActivityMainBinding
     private var plan = Plan()
+    /** Plans before each change, oldest first; its size is the step counter shown between Undo and Redo. */
     private val undoStack = ArrayDeque<Plan>()
+
+    /** Plans that were undone, most recently undone last; a new change clears them. */
+    private val redoStack = ArrayDeque<Plan>()
+
+    /** The redo history a new change cleared, kept in case the change is cancelled (see [cancelUndo]). */
+    private var clearedRedo: List<Plan> = emptyList()
     private val prefs by lazy { getSharedPreferences("energyplan", MODE_PRIVATE) }
 
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -67,6 +74,15 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
         setSupportActionBar(b.toolbar)
+        supportActionBar?.setDisplayShowTitleEnabled(false)
+        b.planName.setOnClickListener { askName("Rename plan", "Rename") {} }
+        b.floorButton.setOnClickListener { chooseFloor() }
+        b.undoButton.setOnClickListener { undo() }
+        b.redoButton.setOnClickListener { redo() }
+        b.fitButton.setOnClickListener { b.planView.fitToPlan() }
+        b.saveButton.setOnClickListener {
+            if (saving) Toast.makeText(this, "Still saving…", Toast.LENGTH_SHORT).show() else askName("Save plan", "Save") { save() }
+        }
 
         // targetSdk 35+ is always edge-to-edge: keep content clear of the system bars.
         ViewCompat.setOnApplyWindowInsetsListener(b.root) { v, insets ->
@@ -85,8 +101,14 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         b.planView.floor = startFloor(plan, Floor.parse(prefs.getString(PREF_VIEW_FLOOR, null)))
 
         b.addButton.setOnClickListener { addRoomFromKeyboard() }
-        b.editButton.setOnClickListener { plan.room(b.planView.selectedId)?.let { editRoom(it) } }
-        b.deleteButton.setOnClickListener { deleteSelected() }
+        b.editButton.setOnClickListener {
+            selectedDoor()?.let { (room, door) -> return@setOnClickListener showDoorDialog(room, door, door) }
+            plan.room(b.planView.selectedId)?.let { editRoom(it) }
+        }
+        b.deleteButton.setOnClickListener {
+            selectedDoor()?.let { (room, door) -> return@setOnClickListener removeDoor(room, door) }
+            deleteSelected()
+        }
         updateUi()
     }
 
@@ -96,12 +118,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        // In the toolbar the short name shows; when it overflows into ⋮ the full title makes clear what it does.
-        menu.findItem(R.id.action_floor).apply {
-            title = "Floor: ${b.planView.floor.title}…"
-            titleCondensed = b.planView.floor.label
-        }
-        menu.findItem(R.id.action_undo).isEnabled = undoStack.isNotEmpty()
+        updateToolbar()
         // Each stacking action is only offered when it would change something.
         val room = plan.room(b.planView.selectedId)
         val up = room != null && plan.canBringForward(room)
@@ -125,9 +142,6 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.action_floor -> chooseFloor()
-            R.id.action_undo -> undo()
-            R.id.action_fit -> b.planView.fitToPlan()
             R.id.action_summary -> showSummary()
             R.id.action_add_floor -> plan.room(b.planView.selectedId)?.floor?.above?.let { addFloor(it) }
             R.id.action_add_basement -> addFloor(Floor.BASEMENT)
@@ -135,7 +149,6 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_bring_front -> restack { plan.bringToFront(it) }
             R.id.action_send_backward -> restack { plan.sendBackward(it) }
             R.id.action_send_back -> restack { plan.sendToBack(it) }
-            R.id.action_save -> if (saving) Toast.makeText(this, "Still saving…", Toast.LENGTH_SHORT).show() else askName("Save plan", "Save") { save() }
             R.id.action_save_location -> chooseSaveLocation()
             R.id.action_share_log -> shareLog()
             R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
@@ -182,8 +195,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     override fun onRoomResized(room: Room, side: Side, removedBays: List<Bay>) {
         if (moveStart == (room.x to room.y) && sizeStart == (room.width to room.depth)) {
             // Snapped back to its old size: nothing to log or undo.
-            undoStack.removeLastOrNull()
-            invalidateOptionsMenu()
+            cancelUndo()
             return
         }
         val old = sizeStart?.let { "${fmtM(it.first)} × ${fmtM(it.second)}" } ?: "?"
@@ -200,8 +212,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val start = moveStart
         if (start != null && start == (r.x to r.y)) {
             // Snapped back to where it started: nothing to log or undo.
-            undoStack.removeLastOrNull()
-            invalidateOptionsMenu()
+            cancelUndo()
             return
         }
         val from = start?.let { "(${fmtM(it.first)}, ${fmtM(it.second)})" } ?: "?"
@@ -215,6 +226,30 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val room = wall.room
         val width = round3(minOf(2.0, wall.to - wall.from))
         showBayDialog(room, null, Bay(BayType.ANGLED, wall.side, 0.0, width, 0.6), along, wall.from to wall.to)
+    }
+
+    override fun onDoorRequested(room: Room, side: Side, along: Double) {
+        val (lo, hi) = sideRange(room, side)
+        val width = round3(minOf(Door.DEFAULT_WIDTH, hi - lo))
+        val start = fitDoor(along, width, lo, hi) ?: lo
+        showDoorDialog(room, null, Door(side, round3(start - lo), width))
+    }
+
+    override fun onDoorEdit(room: Room, door: Door) = showDoorDialog(room, door, door)
+
+    override fun onDoorSelected(room: Room?, door: Door?) {
+        updateUi()
+        invalidateOptionsMenu()
+    }
+
+    override fun onDoorMoved(room: Room, old: Door, door: Door) {
+        if (old == door) {
+            // Back where it started: nothing to log or undo.
+            cancelUndo()
+            return
+        }
+        AppLog.i("Moved door in '${room.name}' ${door.side.label} wall: ${fmtM(old.offset)} -> ${fmtM(door.offset)} m from its end")
+        changed()
     }
 
     override fun onBayEdit(room: Room, bay: Bay) {
@@ -379,20 +414,54 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
 
     // --- undo / state ---
 
+    /** Call before every change: remembers the plan as it is, and starts a new redo history. */
     private fun pushUndo() {
         undoStack.addLast(plan.copy())
-        if (undoStack.size > 50) undoStack.removeFirst()
+        if (undoStack.size > MAX_UNDO) undoStack.removeFirst()
+        clearedRedo = redoStack.toList()
+        redoStack.clear()
+        invalidateOptionsMenu()
+    }
+
+    /** Takes back a [pushUndo] whose change came to nothing (e.g. a room dragged back where it was). */
+    private fun cancelUndo() {
+        undoStack.removeLastOrNull()
+        redoStack.clear()
+        redoStack.addAll(clearedRedo)
         invalidateOptionsMenu()
     }
 
     private fun undo() {
         val previous = undoStack.removeLastOrNull() ?: return
-        AppLog.i("Undo (${undoStack.size} steps left)")
+        redoStack.addLast(plan.copy())
+        AppLog.i("Undo (step ${undoStack.size}, ${redoStack.size} to redo)")
+        restore(previous)
+    }
+
+    private fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(plan.copy())
+        AppLog.i("Redo (step ${undoStack.size}, ${redoStack.size} more to redo)")
+        restore(next)
+    }
+
+    private fun restore(p: Plan) {
         val keepSelection = b.planView.selectedId
-        setPlan(previous, fit = false)
+        setPlan(p, fit = false)
         b.planView.select(keepSelection)
         PlanStorage.autosave(this, plan)
         invalidateOptionsMenu()
+    }
+
+    /** Plan name, floor, the step counter and which of Undo and Redo can be used. */
+    private fun updateToolbar() {
+        b.planName.text = plan.name
+        b.floorButton.text = b.planView.floor.label
+        b.stepCounter.text = undoStack.size.toString()
+        for ((v, on) in listOf(b.undoButton to undoStack.isNotEmpty(), b.redoButton to redoStack.isNotEmpty())) {
+            v.isEnabled = on
+            v.alpha = if (on) 1f else 0.4f
+        }
     }
 
     private fun changed() {
@@ -413,10 +482,14 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     private fun updateUi() {
-        supportActionBar?.title = getString(R.string.app_name)
-        supportActionBar?.subtitle = "${plan.name}  ·  ${b.planView.floor.title}"
+        updateToolbar()
         val room = plan.room(b.planView.selectedId)
+        val door = selectedDoor()
         b.status.text = when {
+            door != null -> String.format(
+                Locale.UK, "Door: %s, %s wall · %s m · hinged %s · opens %s\nDrag to slide along the wall · 2× tap or Edit to change",
+                door.first.name, door.second.side.label, fmtM(door.second.width), door.second.hinge.label.lowercase(), door.second.swing.label.lowercase(),
+            )
             room != null && room.unallocated -> String.format(
                 Locale.UK, "Unallocated space (was %s) – not counted\n%s × %s m  ·  %s m²  ·  Delete to remove or restore",
                 room.name, fmtM(room.width), fmtM(room.depth), fmtM(plan.netArea(room)),
@@ -439,11 +512,11 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 plan.rooms(b.planView.floor).count { !it.unallocated && plan.shows(it) },
                 fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netArea(it) }),
                 fmtArea(plan.rooms(b.planView.floor).filter { !it.unallocated }.sumOf { plan.netVolume(it) }),
-                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / add bay · drag a side handle: resize · 2× tap: edit" else "Drag: pan · hold: select room / add bay · drag a side handle: resize · 2× tap: edit",
+                if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / add bay · tap wall: add door · drag a side handle: resize · 2× tap: edit" else "Drag: pan · hold: select room / add bay · tap wall: add door · drag a side handle: resize · 2× tap: edit",
             )
         }
-        b.editButton.isEnabled = room != null
-        b.deleteButton.isEnabled = room != null
+        b.editButton.isEnabled = room != null || door != null
+        b.deleteButton.isEnabled = room != null || door != null
     }
 
     // --- files ---
@@ -595,6 +668,109 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    // --- doors ---
+
+    /** The selected door and its room, if it still exists. */
+    private fun selectedDoor(): Pair<Room, Door>? {
+        val (id, door) = b.planView.selectedDoor ?: return null
+        val room = plan.room(id) ?: return null
+        return if (door in room.doors) room to door else null
+    }
+
+    /** Start and end of [side] of [room] along the plan's x (top/bottom) or y (left/right). */
+    private fun sideRange(room: Room, side: Side): Pair<Double, Double> =
+        if (side.horizontal) room.x to room.x + room.width else room.y to room.y + room.depth
+
+    /**
+     * Adds a door ([existing] null) or changes one: its width, the side it's
+     * hinged on and whether it opens into the room or out of it. A new or
+     * resized door stays centred where it was, within the room's side.
+     */
+    private fun showDoorDialog(room: Room, existing: Door?, initial: Door) {
+        val pad = dp(24)
+        fun <T> radios(values: List<T>, label: (T) -> String, checked: T): Pair<RadioGroup, Map<T, RadioButton>> {
+            val group = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+            val buttons = values.associateWith { v ->
+                RadioButton(this).apply {
+                    id = View.generateViewId()
+                    text = label(v)
+                    group.addView(this)
+                }
+            }
+            buttons.getValue(checked).isChecked = true
+            return group to buttons
+        }
+        fun caption(text: String) = TextView(this).apply {
+            this.text = text
+            setPadding(0, dp(8), 0, 0)
+        }
+        val (hingeGroup, hinges) = radios(DoorHinge.entries, { "Hinged ${it.label.lowercase()}" }, initial.hinge)
+        val (swingGroup, swings) = radios(DoorSwing.entries, { "Opens ${it.label.lowercase()}" }, initial.swing)
+        val widthInput = TextInputEditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(fmtM(initial.width))
+        }
+        val widthLayout = TextInputLayout(this).apply {
+            hint = "Width (m)"
+            addView(widthInput)
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp(8), pad, 0)
+            addView(widthLayout)
+            addView(caption("Hinge side, seen from inside ${room.name} facing the wall:"))
+            addView(hingeGroup)
+            addView(caption("Opens into ${room.name} (in) or away from it (out):"))
+            addView(swingGroup)
+        }
+        val (lo, hi) = sideRange(room, initial.side)
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(if (existing == null) "Add door" else "Door")
+            .setMessage("${room.name}, ${initial.side.label} wall · ${fmtM(hi - lo)} m long")
+            .setView(ScrollView(this).apply { addView(body) })
+            .setPositiveButton("OK", null)
+            .setNegativeButton("Cancel", null)
+            .apply { if (existing != null) setNeutralButton("Remove", null) }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val width = widthInput.text.toString().trim().replace(',', '.').toDoubleOrNull()
+                widthLayout.error = when {
+                    width == null || width <= 0 -> "Enter a width in metres, e.g. 0.9"
+                    width > hi - lo + 1e-6 -> "At most ${fmtM(hi - lo)} m on this wall"
+                    else -> null
+                }
+                if (width == null || widthLayout.error != null) return@setOnClickListener
+                val (a, z) = initial.span(room)
+                val start = fitDoor((a + z) / 2, round3(width), lo, hi) ?: lo
+                val door = Door(
+                    initial.side, round3(start - lo), round3(width),
+                    hinges.entries.first { it.value.isChecked }.key,
+                    swings.entries.first { it.value.isChecked }.key,
+                )
+                pushUndo()
+                room.doors = if (existing == null) room.doors + door else room.doors.map { if (it == existing) door else it }
+                AppLog.i((if (existing == null) "Added " else "Changed ") + "${door.describe()} to '${room.name}' (${room.floor.title})")
+                changed()
+                b.planView.selectDoor(room, door)
+                dialog.dismiss()
+            }
+            if (existing != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                removeDoor(room, existing)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun removeDoor(room: Room, door: Door) {
+        pushUndo()
+        room.doors = room.doors - door
+        AppLog.i("Removed ${door.describe()} from '${room.name}' (${room.floor.title})")
+        b.planView.selectDoor(null, null)
+        changed()
     }
 
     // --- bay windows ---
@@ -1097,6 +1273,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     companion object {
         private const val PREF_ONE_FINGER_DRAW = "oneFingerDraw"
         private const val PREF_VIEW_FLOOR = "viewFloor"
+        /** Undo steps kept; each is a copy of the plan, which is small. */
+        private const val MAX_UNDO = 1000
 
         private val PALETTE = listOf(
             "Red" to 0xFFD32F2F, "Pink" to 0xFFEC407A, "Purple" to 0xFF7B1FA2, "Deep purple" to 0xFF512DA8,

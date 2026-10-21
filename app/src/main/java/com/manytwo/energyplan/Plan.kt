@@ -54,6 +54,8 @@ data class Room(
     var unallocated: Boolean = false,
     /** Bay windows on its outside walls; they belong to this floor only. Replaced, never changed in place. */
     var bays: List<Bay> = emptyList(),
+    /** Doors in its walls; they belong to this floor only. Replaced, never changed in place. */
+    var doors: List<Door> = emptyList(),
 ) {
     /** Floor area: the rectangle plus any bay windows. */
     val area get() = width * depth + bays.sumOf { it.area }
@@ -141,7 +143,7 @@ class Plan(
         val originals = rooms.filter { it.part == part && it.floor == from }
         var next = nextId()
         val ids = originals.associate { it.id to next++ }
-        val copies = originals.map { it.copy(id = ids.getValue(it.id), floor = to, bays = emptyList()) }
+        val copies = originals.map { it.copy(id = ids.getValue(it.id), floor = to, bays = emptyList(), doors = emptyList()) }
         rooms += copies
         for ((key, spec) in wallOverrides.toMap()) {
             val (pair, side) = key.split(':')
@@ -250,6 +252,15 @@ class Plan(
                         if (b.type == BayType.ANGLED) put("hinge", round3(b.hinge))
                         put("area", round3(b.area))
                         put("perimeter", round3(b.perimeter))
+                    })
+                })
+                if (r.doors.isNotEmpty()) put("doors", JSONArray().apply {
+                    for (d in r.doors) put(JSONObject().apply {
+                        put("side", d.side.label)
+                        put("offset", round3(d.offset))
+                        put("width", round3(d.width))
+                        put("hinge", d.hinge.label)
+                        put("opens", d.swing.label)
                     })
                 })
                 put("x", r.x)
@@ -383,6 +394,17 @@ class Plan(
                                 Bay(
                                     BayType.parse(b.optString("type")) ?: BayType.SQUARE, side,
                                     b.getDouble("offset"), b.getDouble("width"), b.getDouble("depth"),
+                                )
+                            }
+                        } ?: emptyList(),
+                        doors = r.optJSONArray("doors")?.let { arr ->
+                            (0 until arr.length()).mapNotNull { k ->
+                                val d = arr.getJSONObject(k)
+                                val side = Side.entries.firstOrNull { it.label == d.optString("side") } ?: return@mapNotNull null
+                                Door(
+                                    side, d.getDouble("offset"), d.optDouble("width", Door.DEFAULT_WIDTH),
+                                    DoorHinge.parse(d.optString("hinge")) ?: DoorHinge.LEFT,
+                                    DoorSwing.parse(d.optString("opens")) ?: DoorSwing.IN,
                                 )
                             }
                         } ?: emptyList(),

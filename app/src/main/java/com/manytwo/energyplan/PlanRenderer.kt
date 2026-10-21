@@ -43,6 +43,12 @@ class PlanRenderer(private val d: Float) {
     private val bayWall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeJoin = Paint.Join.MITER; strokeCap = Paint.Cap.SQUARE
     }
+    private val doorArc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF000000.toInt(); style = Paint.Style.STROKE; strokeWidth = 0.6f * d
+    }
+    private val doorLeaf = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
+    private val doorSelected = 0xFFE67E00.toInt()
+    private val doorBrown = 0xFF8B5A2B.toInt()
     private val wallHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF000000.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f * d
         pathEffect = DashPathEffect(floatArrayOf(6f * d, 4f * d), 0f)
@@ -157,8 +163,13 @@ class PlanRenderer(private val d: Float) {
      * Walls as solid bars in their type's colour, drawn over the rooms. Lower
      * priority types go first, so External ends up on top where walls meet.
      * [highlight] is the key of a wall to outline (the one being edited).
+     * Doors cut their opening out of the wall and are drawn standing open,
+     * [selectedDoor] (room id and door) in orange.
      */
-    fun drawWalls(c: Canvas, layout: WallLayout, scale: Float, offX: Float, offY: Float, highlight: String? = null, selectedId: Long? = null) {
+    fun drawWalls(
+        c: Canvas, layout: WallLayout, scale: Float, offX: Float, offY: Float,
+        highlight: String? = null, selectedId: Long? = null, selectedDoor: Pair<Long, Door>? = null,
+    ) {
         fun screen(m: DoubleArray): RectF {
             val rf = RectF(
                 offX + (m[0] * scale).toFloat(), offY + (m[1] * scale).toFloat(),
@@ -170,6 +181,10 @@ class PlanRenderer(private val d: Float) {
             if (rf.height() < minPx) rf.inset(0f, (rf.height() - minPx) / 2)
             return rf
         }
+        val rooms = layout.walls.flatMap { listOfNotNull(it.room, it.neighbour) }.distinct()
+        val doors = rooms.flatMap { r -> r.doors.mapNotNull { dr -> layout.doorShape(r, dr)?.let { Triple(r, dr, it) } } }
+        c.save()
+        for ((_, _, sh) in doors) c.clipOutRect(screen(sh.opening))
         for (w in layout.walls.sortedBy { it.type.ordinal }) {
             wallFill.color = WallColors[w.type]
             val bays = w.bays
@@ -192,6 +207,27 @@ class PlanRenderer(private val d: Float) {
         for (k in layout.corners.sortedBy { it.type.ordinal }) {
             wallFill.color = WallColors[k.type]
             c.drawRect(screen(k.rect), wallFill)
+        }
+        c.restore()
+        for ((r, dr, sh) in doors) {
+            val selected = selectedDoor != null && selectedDoor.first == r.id && selectedDoor.second == dr
+            wallFill.color = WallColors[sh.wall.type]
+            c.drawRect(screen(sh.sill), wallFill)
+            doorArc.color = if (selected) doorSelected else 0xFF000000.toInt()
+            doorArc.strokeWidth = (if (selected) 2f else 0.6f) * d
+            val arc = Path()
+            sh.arc.forEachIndexed { i, p ->
+                val x = offX + (p[0] * scale).toFloat()
+                val y = offY + (p[1] * scale).toFloat()
+                if (i == 0) arc.moveTo(x, y) else arc.lineTo(x, y)
+            }
+            c.drawPath(arc, doorArc)
+            doorLeaf.color = if (selected) doorSelected else doorBrown
+            doorLeaf.strokeWidth = max(1.5f, (Door.LEAF * scale).toFloat())
+            c.drawLine(
+                offX + (sh.hinge[0] * scale).toFloat(), offY + (sh.hinge[1] * scale).toFloat(),
+                offX + (sh.tip[0] * scale).toFloat(), offY + (sh.tip[1] * scale).toFloat(), doorLeaf,
+            )
         }
         if (highlight != null) {
             for (w in layout.walls) if (w.key == highlight) c.drawRect(screen(w.rect).apply { inset(-3f * d, -3f * d) }, wallHighlight)

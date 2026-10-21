@@ -15,29 +15,36 @@ This guide covers version 1.8.3 and later. The latest copy is on GitHub:
 3. [Rooms](#3-rooms)
 4. [Walls](#4-walls)
 5. [Bay windows](#5-bay-windows)
-6. [Floors](#6-floors)
-7. [Building parts](#7-building-parts)
-8. [Overlapping rooms](#8-overlapping-rooms)
-9. [Unallocated space](#9-unallocated-space)
-10. [Summary: area, height, HLP and PWL](#10-summary-area-height-hlp-and-pwl)
-11. [Saving, files and opening plans](#11-saving-files-and-opening-plans)
-12. [Undo, autosave and new plans](#12-undo-autosave-and-new-plans)
-13. [Settings](#13-settings)
-14. [Updating the app](#14-updating-the-app)
-15. [The ⋮ menu at a glance](#15-the--menu-at-a-glance)
-16. [Tips and troubleshooting](#16-tips-and-troubleshooting)
-17. [Data file (JSON) reference](#17-data-file-json-reference)
+6. [Doors](#6-doors)
+7. [Floors](#7-floors)
+8. [Building parts](#8-building-parts)
+9. [Overlapping rooms](#9-overlapping-rooms)
+10. [Unallocated space](#10-unallocated-space)
+11. [Summary: area, height, HLP and PWL](#11-summary-area-height-hlp-and-pwl)
+12. [Saving, files and opening plans](#12-saving-files-and-opening-plans)
+13. [Undo, autosave and new plans](#13-undo-autosave-and-new-plans)
+14. [Settings](#14-settings)
+15. [Updating the app](#15-updating-the-app)
+16. [The ⋮ menu at a glance](#16-the--menu-at-a-glance)
+17. [Tips and troubleshooting](#17-tips-and-troubleshooting)
+18. [Data file (JSON) reference](#18-data-file-json-reference)
 
 ---
 
 ## 1. The screen
 
-- **Toolbar (top):** the plan name and the floor you're looking at, then
-    - **Floor button** (e.g. *GROUND*) – switch floors. On a narrow phone it
-      moves into the ⋮ menu as **Floor: Ground floor…**
-    - **Undo** – take back the last change.
+- **Toolbar (top), right-aligned:**
+    - **Plan name** – tap it to rename the plan (cut short if it's long).
+    - **Floor** (e.g. *Ground*, *1st*) – the floor you're looking at; tap it to
+      switch floors.
+    - **Undo** – take back the last change; press it as often as you like.
+    - **Step counter** – the number of the last change made (the undo step
+      you're on): it goes up with each change, down with Undo and up again
+      with Redo.
+    - **Redo** – put back what Undo took away. Making a new change after
+      undoing clears what was left to redo.
     - **Fit** – zoom so the whole floor fits the screen.
-    - **Save** – save the plan (see [Saving](#11-saving-files-and-opening-plans)).
+    - **Save** – save the plan (see [Saving](#12-saving-files-and-opening-plans)).
     - **⋮** – the menu with everything else.
 - **Plan (middle):** a grid with 50 cm squares (shown bottom-left, e.g.
   *Grid 50 cm · snap 10 cm*). Rooms are pale green; walls are solid bars in
@@ -62,6 +69,10 @@ This guide covers version 1.8.3 and later. The latest copy is on GitHub:
 | Double-tap | On a wall | Opens the wall dialog (type and thickness) |
 | Long-press | On an outside wall | Adds a bay window there |
 | Long-press | On a bay window | Changes or removes it |
+| Tap | On a wall | Adds a door there |
+| Tap | On a door | Selects it |
+| Drag | The selected door | Slides it along its wall |
+| Double-tap | On a door | Changes or removes it |
 
 A short tap on a room does **not** select it, so rooms aren't picked by
 accident. A short vibration tells you a long-press has worked.
@@ -105,7 +116,7 @@ rooms start on the floor shown and in the building part you used last.
 - **Delete:** select it and tap **Delete**, then choose
     - **Delete completely** – the room and its walls go; or
     - **Make unallocated** – keep the space and its outside walls, but it's no
-      longer a room (see [Unallocated space](#9-unallocated-space)).
+      longer a room (see [Unallocated space](#10-unallocated-space)).
 
 ### What's shown in a room
 
@@ -194,7 +205,34 @@ What a bay does:
 In the room schedule, rooms with bays are marked **†**, because their area
 is more than width × depth.
 
-## 6. Floors
+## 6. Doors
+
+**Tap any wall** where you want a door – inside or outside, shared or not.
+On a wall between two rooms, the door belongs to the room on the side you
+tapped. Choose:
+
+- **Width** (metres) – 1.00 m to start with; at most the length of that
+  side of the room.
+- **Hinged left / right** – the side the door hangs on, seen from inside the
+  room, facing the wall.
+- **Opens in / out** – into the room, or away from it (into the next room,
+  or outside).
+
+The door is drawn as an opening in the wall with a 40 mm line of the wall's
+colour along its middle, the door (40 mm thick, in brown) standing open at
+45°, and a thin black arc for its swing. It's centred where you tapped.
+
+**Tap a door** to select it (it turns orange), then **drag it** along its
+wall; its ends snap to the 10 cm grid and it stays within that side of the
+room. **Double-tap** a door, or tap **Edit**, to change it; **Delete** or
+**Remove** in its dialog takes it out. Tap anywhere else to deselect it.
+
+Doors move with their room. If a room is resized, its doors stay where they
+are on the plan, kept within the room's side (a door wider than the new
+side is removed). Doors don't change any areas or wall lengths, and **Add
+floor** / **Add basement** don't copy them.
+
+## 7. Floors
 
 Each room is on a floor: **Basement, Ground, 1st … 7th**.
 
@@ -223,16 +261,16 @@ From the ground floor, **⋮ → Add basement** does the same downwards. One
 **Undo** removes a whole copy. If the target floor already has rooms in that
 part, you're warned first; the copies are added on top.
 
-## 7. Building parts
+## 8. Building parts
 
 Each room belongs to a building part: **Main**, **Ext1** to **Ext4**
 (extensions) or **Conservatory**. Choose it in the room dialog. Rooms
 outside Main show their part on the plan (e.g. *h 2.40 m · Ext1*).
 
 Areas, volumes, HLP and PWL are given for each part and floor in the
-[Summary](#10-summary-area-height-hlp-and-pwl).
+[Summary](#11-summary-area-height-hlp-and-pwl).
 
-## 8. Overlapping rooms
+## 9. Overlapping rooms
 
 A room drawn later sits **on top** of earlier ones. Where rooms overlap, the
 overlap belongs to the room on top: the room underneath loses that area
@@ -251,7 +289,7 @@ that lose area to a room on top are marked **\***. A room that's **completely co
 footnote says how many were left out. It's still in the plan, so you can
 select it, bring it to the front or delete it.
 
-## 9. Unallocated space
+## 10. Unallocated space
 
 **Delete → Make unallocated** turns a room into unallocated space – for
 example a loft void, stairwell, or the parts of a floor copied with **Add
@@ -268,7 +306,7 @@ floor** that don't exist upstairs.
 - Select it and tap **Delete** again to **Delete completely** or **Restore as
   room** (it gets its name back).
 
-## 10. Summary: area, height, HLP and PWL
+## 11. Summary: area, height, HLP and PWL
 
 **⋮ → Summary** shows a table for the whole plan:
 
@@ -286,7 +324,7 @@ total. All wall lengths are measured along the **inside face** of the rooms.
 The same table appears in the saved files: under each floor's drawing (that
 floor's rows) and as the **Summary** page (with subtotals).
 
-## 11. Saving, files and opening plans
+## 12. Saving, files and opening plans
 
 ### Save
 
@@ -339,17 +377,20 @@ the pages).
 **⋮ → Share log** sends the app's log (e.g. by email) – useful when
 reporting a problem.
 
-## 12. Undo, autosave and new plans
+## 13. Undo, autosave and new plans
 
 - **Undo** reverses the last change – adding, editing, moving, deleting,
-  restacking, wall and bay changes, copying floors – up to 50 steps.
+  restacking, wall, bay and door changes, copying floors – as many times as
+  you like (up to 1000 steps). **Redo** puts back what was undone, until you
+  make a new change. The **step counter** between them shows which step
+  you're on. Undo history lasts until the app is closed.
 - The plan on screen is **saved automatically** after every change, so
   closing the app (or updating it) loses nothing. Autosave is separate from
   **Save**: it doesn't write the JPG/PDF/JSON files.
 - **⋮ → New plan** starts an empty plan after asking you to confirm. The old
   one can still be brought back with Undo (or opened from its saved JSON).
 
-## 13. Settings
+## 14. Settings
 
 **⋮ → Settings…**:
 
@@ -361,7 +402,7 @@ reporting a problem.
   on screen and in the saved pages. They're a setting on each device, not
   part of the plan.
 
-## 14. Updating the app
+## 15. Updating the app
 
 **⋮ → About** shows the version and build date, with:
 
@@ -375,11 +416,10 @@ The first time, Android asks you to **allow Energy Plan to install apps**
 the app and tap the button again; Android's installer then asks you to
 confirm. The plan on screen and your settings are kept.
 
-## 15. The ⋮ menu at a glance
+## 16. The ⋮ menu at a glance
 
 | Item | What it does |
 |---|---|
-| Floor: … | Switch floor (only here when it doesn't fit in the toolbar) |
 | Summary | Area, height, HLP and PWL for every part and floor |
 | Add floor | Copy the selected room's building part to the floor above |
 | Add basement | Copy the selected ground-floor room's part to the basement |
@@ -394,7 +434,7 @@ confirm. The plan on screen and your settings are kept.
 | Help | This guide |
 | About | Version, Check for update, Reinstall |
 
-## 16. Tips and troubleshooting
+## 17. Tips and troubleshooting
 
 - **Work room by room, touching:** add a room, drag it against its neighbour
   until it snaps, then the next. Shared walls appear automatically.
@@ -414,7 +454,7 @@ confirm. The plan on screen and your settings are kept.
 - **Something looks wrong:** **⋮ → Share log** and send the log with a
   description of what happened.
 
-## 17. Data file (JSON) reference
+## 18. Data file (JSON) reference
 
 The `.json` file holds everything needed to reopen the plan, plus the
 calculated results:
@@ -423,7 +463,8 @@ calculated results:
 - `rooms` – in stacking order (bottom first). Each has `id`, `name`,
   `floor`, `buildingPart`, `unallocated`, `x`, `y` (top-left corner),
   `width`, `depth`, `height`, `grossArea`, `area` (net), `volume`, and
-  `bays` (type, side, offset, width, depth, area, perimeter) if it has any.
+  `bays` (type, side, offset, width, depth, hinge for Angled, area, perimeter)
+  and `doors` (side, offset, width, hinge, opens) if it has any.
 - `walls` – every stretch of wall: `floor`, `roomId`, `room`, `side`,
   `neighbourId`, `neighbour` (`null` for outside walls), `type`,
   `thickness`, `length` (including bays) and its end points.
