@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             }
     }
 
+    private val OPEN_TYPES = arrayOf("application/json", "application/octet-stream", "text/plain", "application/pdf", "image/jpeg")
+
     private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { openPlan(it) }
     }
@@ -110,6 +112,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             deleteSelected()
         }
         updateUi()
+
+        // Opened again after Exit: start with the list of saved plans.
+        if (savedInstanceState == null && prefs.getBoolean(PREF_EXITED, false)) {
+            prefs.edit().putBoolean(PREF_EXITED, false).apply()
+            chooseSavedPlan(atStart = true)
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -151,7 +159,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_send_back -> restack { plan.sendToBack(it) }
             R.id.action_save_location -> chooseSaveLocation()
             R.id.action_share_log -> shareLog()
-            R.id.action_open -> openDocument.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
+            R.id.action_open -> chooseSavedPlan()
+            R.id.action_exit -> confirmExit()
             R.id.action_rename -> askName("Rename plan", "Rename") {}
             R.id.action_new -> confirmNewPlan()
             R.id.action_settings -> showSettings()
@@ -449,6 +458,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         val keepSelection = b.planView.selectedId
         setPlan(p, fit = false)
         b.planView.select(keepSelection)
+        unsaved = true
         PlanStorage.autosave(this, plan)
         invalidateOptionsMenu()
     }
@@ -465,6 +475,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     private fun changed() {
+        unsaved = true
         plan.fitBayHinges()
         PlanStorage.autosave(this, plan)
         b.planView.invalidate()
@@ -538,7 +549,10 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             .setPositiveButton(button) { _, _ ->
                 val old = plan.name
                 plan.name = input.text.toString().trim().ifBlank { plan.name }
-                if (plan.name != old) AppLog.i("Renamed plan '$old' -> '${plan.name}'")
+                if (plan.name != old) {
+                    AppLog.i("Renamed plan '$old' -> '${plan.name}'")
+                    unsaved = true
+                }
                 PlanStorage.autosave(this, plan)
                 updateUi()
                 then()
@@ -563,20 +577,63 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         AppLog.i("Saving '${snapshot.name}': ${snapshot.rooms.size} rooms, ${fmtM(snapshot.totalArea)} m², ${fmtM(snapshot.totalVolume)} m³ to ${PlanStorage.locationLabel(this)}")
         AppLog.i("Walls: " + snapshot.wallLayout().totals().joinToString { (t, th, len) -> "${t.label} ${mm(th)} mm ${fmtM(len)} m" })
         askForNotificationsOnce()
+        unsaved = false
+        prefs.edit().putString(PREF_PLAN_FILE, PlanStorage.baseName(snapshot) + ".json").apply()
         SaveService.start(this, snapshot)
         Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
     }
 
     private fun onSaved(result: Result<List<String>>, snapshot: Plan) {
         result.onSuccess { all ->
+            if (exitAfterSave) return@onSuccess exitApp()
             MaterialAlertDialogBuilder(this)
                 .setTitle("Saved ${all.size} files")
                 .setMessage(PlanStorage.locationLabel(this) + "\n\n" + all.joinToString("\n"))
                 .setPositiveButton("OK", null)
+                .setNeutralButton("Exit app") { _, _ -> exitApp() }
                 .show()
         }.onFailure {
-            Toast.makeText(this, "Save failed: ${it.message}", Toast.LENGTH_LONG).show()
+            if (exitAfterSave) AppLog.w("Save failed, so the app stays open")
+            exitAfterSave = false
+            unsaved = true
+            Toast.makeText(this, "Save failed: ${it.message} - the app stays open", Toast.LENGTH_LONG).show()
         }
+    }
+
+    // --- exit ---
+
+    /** The plan changed since it was last saved (kept across restarts: the autosave brings the changes back). */
+    private var unsaved: Boolean
+        get() = prefs.getBoolean(PREF_UNSAVED, false)
+        set(v) = prefs.edit().putBoolean(PREF_UNSAVED, v).apply()
+
+    /** Exit was asked for while a save was running: close once it has finished. */
+    private var exitAfterSave = false
+
+    /** Save and exit: saves the plan as the Save button does (name confirmed), then closes the app once the save has finished. */
+    private fun confirmExit() {
+        if (saving) {
+            exitAfterSave = true
+            Toast.makeText(this, "Closing when the save has finished…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // An empty plan has nothing to save.
+        if (plan.rooms.isEmpty()) return exitApp()
+        askName("Save and exit", "Save and exit") {
+            AppLog.i("Save and exit")
+            exitAfterSave = true
+            save()
+        }
+    }
+
+    /** Closes the app completely: off the screen, out of Recents, and the process ended. */
+    private fun exitApp() {
+        AppLog.i("Exit")
+        PlanStorage.autosave(this, plan)
+        prefs.edit().putBoolean(PREF_EXITED, true).commit()
+        finishAndRemoveTask()
+        // Let the activity finish first, then end the process so nothing is left running.
+        b.root.postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 300)
     }
 
     override fun onStart() {
@@ -638,13 +695,89 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
     }
 
-    private fun openPlan(uri: Uri) {
+    /** Lists the plans saved by this app (Android's picker hides .json files in its Documents view). */
+    private fun chooseSavedPlan(atStart: Boolean = false) {
+        thread {
+            val found = PlanStorage.savedPlans(this)
+            // Each file's plan name, rooms and area, read from the file itself.
+            fun entry(title: String, details: String) = SpannableStringBuilder(title).apply {
+                // Bold name, then the details, then a blank line to keep the files apart.
+                setSpan(android.text.style.StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                append("\n").append(details).append("\n")
+            }
+            val labels = found.map { f ->
+                val date = java.text.SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK).format(java.util.Date(f.modified))
+                runCatching { Plan.fromJson(PlanStorage.readText(this, f.uri)) }.fold(
+                    { p -> p.name to "${f.fileName}\n$date · ${p.rooms.size} rooms · ${fmtM(p.totalArea)} m²" },
+                    { f.fileName to "$date · can't be read" },
+                ).let { (title, details) -> entry(title, details) }
+            }.toMutableList<CharSequence>()
+            // After Exit, the plan from last time comes first, with the file it was last saved to or opened from.
+            val offerContinue = atStart && plan.rooms.isNotEmpty()
+            if (offerContinue) {
+                val file = prefs.getString(PREF_PLAN_FILE, null) ?: "not saved yet"
+                val state = if (unsaved) " · has unsaved changes" else ""
+                labels.add(0, entry("Continue: ${plan.name}", "$file\n${plan.rooms.size} rooms · ${fmtM(plan.totalArea)} m²$state"))
+            }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                AppLog.i("Open plan: ${found.size} saved plans found")
+                val dlg = MaterialAlertDialogBuilder(this).setTitle("Open a saved plan")
+                if (labels.isEmpty()) {
+                    dlg.setMessage("No saved plans found in ${PlanStorage.DOC_DIR}.\n\nUse Other file… to pick a .json plan from elsewhere.")
+                } else {
+                    val skip = if (offerContinue) 1 else 0
+                    dlg.setItems(labels.toTypedArray()) { _, i ->
+                        if (i < skip) AppLog.i("Continue with '${plan.name}'") else openPlan(found[i - skip].uri)
+                    }
+                }
+                dlg.setNeutralButton("Other file…") { _, _ -> openDocument.launch(OPEN_TYPES) }
+                if (atStart) {
+                    // After Exit: the plan from last time is behind the list; carry on with it or start afresh.
+                    dlg.setPositiveButton("New plan") { _, _ ->
+                        AppLog.i("New plan at start (previous '${plan.name}' had ${plan.rooms.size} rooms)")
+                        pushUndo()
+                        setPlan(Plan())
+                        unsaved = false
+                        prefs.edit().remove(PREF_PLAN_FILE).apply()
+                        PlanStorage.autosave(this, plan)
+                    }
+                } else {
+                    dlg.setNegativeButton("Cancel", null)
+                }
+                dlg.show()
+            }
+        }
+    }
+
+    private fun openPlan(picked: Uri) {
+        var uri = picked
+        // A .txt, .pdf or .jpg from a save: open the .json saved with it.
+        val name = PlanStorage.displayName(this, picked)
+        val planName = name?.let(PlanStorage::planFileFor)
+        if (planName != null) {
+            val match = PlanStorage.savedPlans(this).firstOrNull { it.fileName == planName }
+            if (match == null) {
+                AppLog.w("Picked $name: no saved plan $planName found")
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("That's not a plan file")
+                    .setMessage("$name was written by a save, but the plan itself is in $planName, which wasn't found.\n\nPick the .json file instead.")
+                    .setPositiveButton("OK", null)
+                    .show()
+                return
+            }
+            AppLog.i("Picked $name: opening the plan saved with it, $planName")
+            uri = match.uri
+        }
+        val fileName = planName ?: name
         AppLog.i("Opening $uri")
         try {
             val loaded = Plan.fromJson(PlanStorage.readText(this, uri))
             AppLog.i("Opened '${loaded.name}' with ${loaded.rooms.size} rooms")
             pushUndo()
             setPlan(loaded)
+            unsaved = false
+            prefs.edit().putString(PREF_PLAN_FILE, fileName).apply()
             PlanStorage.autosave(this, plan)
         } catch (e: Exception) {
             AppLog.e("Open failed for $uri", e)
@@ -664,6 +797,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 AppLog.i("New plan (previous '${plan.name}' had ${plan.rooms.size} rooms)")
                 pushUndo()
                 setPlan(Plan())
+                unsaved = false
+                prefs.edit().remove(PREF_PLAN_FILE).apply()
                 PlanStorage.autosave(this, plan)
             }
             .setNegativeButton("Cancel", null)
@@ -1273,6 +1408,9 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     companion object {
         private const val PREF_ONE_FINGER_DRAW = "oneFingerDraw"
         private const val PREF_VIEW_FLOOR = "viewFloor"
+        private const val PREF_UNSAVED = "unsaved"
+        private const val PREF_EXITED = "exited"
+        private const val PREF_PLAN_FILE = "planFile"
         /** Undo steps kept; each is a copy of the plan, which is small. */
         private const val MAX_UNDO = 1000
 

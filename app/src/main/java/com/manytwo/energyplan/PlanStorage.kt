@@ -158,6 +158,63 @@ object PlanStorage {
     fun saveLog(ctx: Context, plan: Plan): Uri =
         write(ctx, "${baseName(plan)}.txt", "text/plain", image = false) { it.write(AppLog.text().toByteArray()) }
 
+    // --- finding saved plans ---
+
+    /** A saved plan's .json file. */
+    class SavedPlan(val fileName: String, val uri: Uri, val modified: Long)
+
+    /**
+     * The .json plans this app saved, newest first: in the picked folder (if any)
+     * and in Documents/EnergyPlan/. Android's file picker hides .json files in its
+     * "Documents" view, so the app lists its own instead. Without a storage
+     * permission MediaStore only returns files this install created - which are
+     * exactly the plans saved here.
+     */
+    fun savedPlans(ctx: Context): List<SavedPlan> {
+        val found = mutableListOf<SavedPlan>()
+        customFolder(ctx)?.let { folder ->
+            runCatching {
+                folder.listFiles().filter { it.isFile && it.name?.endsWith(".json", ignoreCase = true) == true }
+                    .mapTo(found) { SavedPlan(it.name!!, it.uri, it.lastModified()) }
+            }.onFailure { AppLog.e("Could not list ${folder.name}", it) }
+        }
+        val collection = MediaStore.Files.getContentUri("external")
+        runCatching {
+            ctx.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.DATE_MODIFIED),
+                "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+                arrayOf(DOC_DIR, "%.json"), null,
+            )?.use { cur ->
+                while (cur.moveToNext()) {
+                    found += SavedPlan(cur.getString(1), ContentUris.withAppendedId(collection, cur.getLong(0)), cur.getLong(2) * 1000)
+                }
+            }
+        }.onFailure { AppLog.e("Could not list $DOC_DIR", it) }
+        return found.sortedByDescending { it.modified }
+    }
+
+    /**
+     * For a file written by a save (yyyy-mm-dd-Name.txt, .pdf or .Page.jpg),
+     * the name of the .json saved with it; null if it already is one.
+     */
+    fun planFileFor(fileName: String): String? {
+        val lower = fileName.lowercase()
+        return when {
+            lower.endsWith(".json") -> null
+            lower.endsWith(".txt") || lower.endsWith(".pdf") -> fileName.substringBeforeLast('.') + ".json"
+            // .Ground.jpg, .Summary.jpg, ...: drop the page name too.
+            lower.endsWith(".jpg") -> fileName.substringBeforeLast('.').substringBeforeLast('.') + ".json"
+            else -> null
+        }
+    }
+
+    /** The display name of a picked file, if the provider gives one. */
+    fun displayName(ctx: Context, uri: Uri): String? = runCatching {
+        ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull()
+
     fun readText(ctx: Context, uri: Uri): String =
         ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
             ?: throw IOException("Could not open file")

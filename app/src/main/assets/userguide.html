@@ -218,6 +218,9 @@ or shower, say) the label turns to read upwards when that fits better.</p>
 <li>Where another room on the same floor touches it (or is within 15 cm), that
   stretch is a shared <strong>Internal</strong> wall, drawn <strong>centred on the join</strong> – half
   in each room – so the rooms stay neatly aligned.</li>
+<li>If you leave a gap for the wall between two rooms (up to 15 cm), the short
+  bit of wall of the room across the end of that gap is <strong>Internal</strong> too: it
+  is the end of the wall between them, not an outside wall.</li>
 <li>Everything else is <strong>External</strong> and is drawn <strong>outside</strong> the room, wrapping
   round it, with square corners.</li>
 </ul>
@@ -499,8 +502,24 @@ pick instead – including a cloud folder such as Nextcloud, if its app offers
 one in the picker. <strong>Use default</strong> goes back to the default folders. Saving
 to a cloud folder is slower (each file is uploaded; allow 20–40 seconds).</p>
 <h3 id="open-a-saved-plan">Open a saved plan</h3>
-<p><strong>⋮ → Open plan…</strong> and pick a saved <code>.json</code> file. The current plan can be
-brought back with <strong>Undo</strong>.</p>
+<p><strong>⋮ → Open plan…</strong> lists the plans saved on this tablet, newest first, with
+their rooms and area: tap one to open it. <strong>Other file…</strong> opens Android's
+file picker for a <code>.json</code> plan from somewhere else (for example one copied
+from another device). If you pick the <code>.txt</code>, <code>.pdf</code> or a <code>.jpg</code> of a save,
+the plan saved with it is opened. The current plan can be brought back with
+<strong>Undo</strong>.</p>
+<p>Android's file picker hides <code>.json</code> files in its <em>Documents</em> view; in the
+picker, open ☰ → the tablet's storage → Documents → EnergyPlan to see them.</p>
+<h3 id="save-and-exit">Save and exit</h3>
+<p><strong>⋮ → Save and exit</strong> saves the plan to storage, just like <strong>Save</strong> (you
+confirm the name), and closes Energy Plan completely once the save has
+finished (it also leaves the Recents list). If the save fails, the app stays
+open. An empty plan has nothing to save, so it just closes. <strong>Exit app</strong> in
+the "Saved" message closes the app straight after a save.</p>
+<p>After Save and exit (or Exit app), the app opens with the list of saved plans. At the top,
+<strong>Continue</strong> shows the plan from last time with the file it was last saved
+to or opened from (and whether it has unsaved changes); tap it to carry on,
+tap another plan to open it, or choose <strong>New plan</strong>.</p>
 <h3 id="rename">Rename</h3>
 <p><strong>⋮ → Rename plan…</strong> changes the plan name (used in the file names and on
 the pages).</p>
@@ -582,7 +601,7 @@ confirm. The plan on screen and your settings are kept.</p>
 </tr>
 <tr>
 <td>Open plan…</td>
-<td>Open a saved <code>.json</code> plan</td>
+<td>Open a saved plan from the list, or another file</td>
 </tr>
 <tr>
 <td>Rename plan…</td>
@@ -603,6 +622,10 @@ confirm. The plan on screen and your settings are kept.</p>
 <tr>
 <td>About</td>
 <td>Version, Check for update, Reinstall</td>
+</tr>
+<tr>
+<td>Save and exit</td>
+<td>Save the plan, then close the app completely</td>
 </tr>
 </tbody>
 </table>

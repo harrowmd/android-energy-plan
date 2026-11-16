@@ -185,7 +185,9 @@ fun Plan.wallLayout(): WallLayout {
                 val n = nb?.first
                 val key = wallKey(r, side, n)
                 val spec = wallOverrides[key]
-                val type = spec?.type ?: if (n == null) WallType.EXTERNAL else WallType.INTERNAL
+                // A short stretch facing the gap between two rooms is the end of the wall between them, not outside.
+                val auto = if (n != null || bridgesGap(r, side, s0, s1)) WallType.INTERNAL else WallType.EXTERNAL
+                val type = spec?.type ?: auto
                 val extra = if (n != null) 0.0 else r.bays.filter { b ->
                     b.side == side && b.span(r).let { (p, q) -> (p + q) / 2 in s0..s1 }
                 }.sumOf { it.perimeter - it.width }
@@ -315,6 +317,29 @@ private fun Plan.neighbourSpans(r: Room, side: Side, a: Double, b: Double): List
         }
     }
     return out.filter { it.second - it.first > MIN_WALL }
+}
+
+/**
+ * True when the stretch [s0]..[s1] of [side] of [r], with no room straight
+ * beyond it, is no longer than [MAX_WALL_GAP] and sits across the gap between
+ * two rooms beyond it: one ending at [s0] and one starting at [s1]. That gap
+ * holds the wall between those two rooms, so this bit of wall is its end and
+ * internal, not an outside wall (e.g. a bedroom's wall across the gap between
+ * the bathroom and lobby below it).
+ */
+private fun Plan.bridgesGap(r: Room, side: Side, s0: Double, s1: Double): Boolean {
+    if (s1 - s0 > MAX_WALL_GAP + EPS) return false
+    val beyond = rooms.filter { n ->
+        n !== r && n.floor == r.floor && when (side) {
+            Side.TOP -> n.y < r.y - EPS && n.y + n.depth > r.y - MAX_WALL_GAP
+            Side.BOTTOM -> (r.y + r.depth).let { e -> n.y + n.depth > e + EPS && n.y < e + MAX_WALL_GAP }
+            Side.LEFT -> n.x < r.x - EPS && n.x + n.width > r.x - MAX_WALL_GAP
+            Side.RIGHT -> (r.x + r.width).let { e -> n.x + n.width > e + EPS && n.x < e + MAX_WALL_GAP }
+        }
+    }
+    val endsAtStart = beyond.any { abs(sideSpan(it, side).second - s0) < EPS }
+    val startsAtEnd = beyond.any { abs(sideSpan(it, side).first - s1) < EPS }
+    return endsAtStart && startsAtEnd
 }
 
 /** Wall types counted in the heat loss perimeter (HLP); Party walls are counted separately (PWL). */

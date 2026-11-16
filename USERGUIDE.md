@@ -135,6 +135,9 @@ Every side of every room gets a wall automatically:
 - Where another room on the same floor touches it (or is within 15 cm), that
   stretch is a shared **Internal** wall, drawn **centred on the join** – half
   in each room – so the rooms stay neatly aligned.
+- If you leave a gap for the wall between two rooms (up to 15 cm), the short
+  bit of wall of the room across the end of that gap is **Internal** too: it
+  is the end of the wall between them, not an outside wall.
 - Everything else is **External** and is drawn **outside** the room, wrapping
   round it, with square corners.
 
@@ -364,8 +367,28 @@ to a cloud folder is slower (each file is uploaded; allow 20–40 seconds).
 
 ### Open a saved plan
 
-**⋮ → Open plan…** and pick a saved `.json` file. The current plan can be
-brought back with **Undo**.
+**⋮ → Open plan…** lists the plans saved on this tablet, newest first, with
+their rooms and area: tap one to open it. **Other file…** opens Android's
+file picker for a `.json` plan from somewhere else (for example one copied
+from another device). If you pick the `.txt`, `.pdf` or a `.jpg` of a save,
+the plan saved with it is opened. The current plan can be brought back with
+**Undo**.
+
+Android's file picker hides `.json` files in its *Documents* view; in the
+picker, open ☰ → the tablet's storage → Documents → EnergyPlan to see them.
+
+### Save and exit
+
+**⋮ → Save and exit** saves the plan to storage, just like **Save** (you
+confirm the name), and closes Energy Plan completely once the save has
+finished (it also leaves the Recents list). If the save fails, the app stays
+open. An empty plan has nothing to save, so it just closes. **Exit app** in
+the "Saved" message closes the app straight after a save.
+
+After Save and exit (or Exit app), the app opens with the list of saved plans. At the top,
+**Continue** shows the plan from last time with the file it was last saved
+to or opened from (and whether it has unsaved changes); tap it to carry on,
+tap another plan to open it, or choose **New plan**.
 
 ### Rename
 
@@ -427,12 +450,13 @@ confirm. The plan on screen and your settings are kept.
 | Send backward / to back | Put the selected room below overlapping rooms |
 | Save location… | Choose the folder for saved files |
 | Share log | Send the app log |
-| Open plan… | Open a saved `.json` plan |
+| Open plan… | Open a saved plan from the list, or another file |
 | Rename plan… | Change the plan name |
 | New plan | Start an empty plan |
 | Settings… | One-finger drawing and wall colours |
 | Help | This guide |
 | About | Version, Check for update, Reinstall |
+| Save and exit | Save the plan, then close the app completely |
 
 ## 17. Tips and troubleshooting
 
