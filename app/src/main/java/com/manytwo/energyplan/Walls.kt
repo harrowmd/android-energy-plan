@@ -11,6 +11,8 @@ import kotlin.math.min
  * an internal wall joins it).
  */
 enum class WallType(val label: String, val defaultThickness: Double, val defaultColor: Int) {
+    /** No wall: two rooms that are really one space (a wall knocked through). 0 mm, drawn as a dotted line. */
+    VIRTUAL("Virtual", 0.0, 0xFFFBC02D.toInt()),
     INTERNAL("Internal", 0.12, 0xFF388E3C.toInt()),
     STUD("Stud", 0.10, 0xFF1976D2.toInt()),
     GLAZING("Glazing", 0.08, 0xFFEC407A.toInt()),
@@ -20,7 +22,7 @@ enum class WallType(val label: String, val defaultThickness: Double, val default
 
     companion object {
         /** The order users see them in. */
-        val menuOrder = listOf(EXTERNAL, INTERNAL, SHELTERED, PARTY, STUD, GLAZING)
+        val menuOrder = listOf(EXTERNAL, INTERNAL, SHELTERED, PARTY, STUD, GLAZING, VIRTUAL)
 
         fun parse(s: String) = entries.firstOrNull { it.name.equals(s, true) || it.label.equals(s, true) }
     }
@@ -82,6 +84,8 @@ class Wall(
     val gap: Double = 0.0,
     /** Extra length from bay windows on this stretch: each bay's outline less the width it replaces. */
     val bayExtra: Double = 0.0,
+    /** The type the app picks by itself for this stretch. */
+    val auto: WallType = if (neighbour == null) WallType.EXTERNAL else WallType.INTERNAL,
 ) {
     /** Along the room's face, plus the extra round any bay windows. */
     val length get() = round3(to - from + bayExtra)
@@ -191,7 +195,9 @@ fun Plan.wallLayout(): WallLayout {
                 val extra = if (n != null) 0.0 else r.bays.filter { b ->
                     b.side == side && b.span(r).let { (p, q) -> (p + q) / 2 in s0..s1 }
                 }.sumOf { it.perimeter - it.width }
-                all += Wall(key, r, side, n, s0, s1, type, spec?.thickness ?: thickness(type), spec != null, nb?.second ?: 0.0, extra)
+                // A virtual wall is no wall at all, so it's always 0 mm.
+                val thick = if (type == WallType.VIRTUAL) 0.0 else spec?.thickness ?: thickness(type)
+                all += Wall(key, r, side, n, s0, s1, type, thick, spec != null, nb?.second ?: 0.0, extra, auto)
             }
         }
     }

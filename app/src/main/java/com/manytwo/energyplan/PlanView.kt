@@ -151,6 +151,10 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 return true
             }
             val wall = if (bayAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_ON_DP) ?: if (roomAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_REACH_DP) else null else null
+            if (wall != null && wall.type == WallType.VIRTUAL) {
+                Toast.makeText(context, "A virtual wall has no door: 2× tap to change the wall", Toast.LENGTH_SHORT).show()
+                return true
+            }
             if (wall != null) {
                 val (room, side) = tappedSide(wall, e.x, e.y)
                 selectDoor(null, null)

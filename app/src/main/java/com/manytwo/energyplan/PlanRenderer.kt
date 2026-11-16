@@ -38,6 +38,12 @@ class PlanRenderer(private val d: Float) {
     }
     private val selectedLine = Paint(outline).apply { color = 0xFFE67E00.toInt(); strokeWidth = 3.5f * d }
     private val wallFill = Paint()
+    /** A virtual wall: a thin dotted line, over a strip of room colour that hides the room outlines under it. */
+    private val virtualUnder = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE8F5E9.toInt(); style = Paint.Style.STROKE; strokeWidth = 3f * d }
+    private val virtualLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 2f * d
+        pathEffect = DashPathEffect(floatArrayOf(3f * d, 3f * d), 0f)
+    }
     private val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE67E00.toInt() }
     private val handleRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f * d }
     private val bayWall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -186,6 +192,16 @@ class PlanRenderer(private val d: Float) {
         c.save()
         for ((_, _, sh) in doors) c.clipOutRect(screen(sh.opening))
         for (w in layout.walls.sortedBy { it.type.ordinal }) {
+            if (w.type == WallType.VIRTUAL) {
+                // Along the middle of where the wall would be.
+                val rc = screen(w.rect)
+                val (x0, y0, x1, y1) = if (w.side.horizontal) listOf(rc.left, rc.centerY(), rc.right, rc.centerY())
+                else listOf(rc.centerX(), rc.top, rc.centerX(), rc.bottom)
+                c.drawLine(x0, y0, x1, y1, virtualUnder)
+                virtualLine.color = WallColors[w.type]
+                c.drawLine(x0, y0, x1, y1, virtualLine)
+                continue
+            }
             wallFill.color = WallColors[w.type]
             val bays = w.bays
             if (bays.isEmpty()) {
@@ -634,7 +650,7 @@ class PlanRenderer(private val d: Float) {
             // A room completely covered by rooms on top has nothing left to report.
             for (r in plan.rooms.filter { plan.shows(it) }.sortedBy { it.floor }) out += Line(rowH, head) { c, top ->
                 val net = plan.netArea(r)
-                val mark = (if (net < round3(r.area)) " *" else "") + if (r.bays.isNotEmpty()) " †" else ""
+                val mark = if (r.bays.isNotEmpty()) " †" else ""
                 val (a, v) = if (r.unallocated) "(${fmtM(net)})" to "(${fmtM(plan.netVolume(r))})" else fmtM(net) to fmtM(plan.netVolume(r))
                 cells(c, top, rowH, left, w, cols, 3, listOf(r.name + mark, r.floor.label, r.part.label, fmtM(r.width), fmtM(r.depth), fmtM(r.height), a, v), if (r.unallocated) p.muted else p.body)
             }
@@ -651,7 +667,6 @@ class PlanRenderer(private val d: Float) {
             if (parts.size > 1) for (t in parts) out += Line(rowH) { c, top ->
                 cells(c, top, rowH, left, w, cols, 3, listOf("  ${t.part.label} total", rooms(t.rooms), "", "", "", "", fmtM(t.area), fmtM(t.volume)), p.body)
             }
-            if (plan.rooms.any { plan.netArea(it) < round3(it.area) }) out += noteLines(p, "* Area and volume exclude the part covered by a room on top.", left, w, rowH)
             if (plan.rooms.any { it.bays.isNotEmpty() }) {
                 out += noteLines(p, "† Area and volume include bay windows (width × depth is the main rectangle only).", left, w, rowH)
             }

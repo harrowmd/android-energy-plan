@@ -1018,9 +1018,16 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             addView(thickness)
         }
         buttons.getValue(wall.type).isChecked = true
+        fun virtualChosen(t: WallType) {
+            // A virtual wall is always 0 mm.
+            thickness.isEnabled = t != WallType.VIRTUAL
+            if (t == WallType.VIRTUAL) thickness.setText("0")
+        }
+        virtualChosen(wall.type)
         group.setOnCheckedChangeListener { _, id ->
             val t = buttons.entries.first { it.value.id == id }.key
             thickness.setText(mm(plan.thickness(t)))
+            virtualChosen(t)
         }
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1028,7 +1035,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             addView(group)
             addView(thicknessLayout)
         }
-        val auto = if (wall.neighbour == null) WallType.EXTERNAL else WallType.INTERNAL
+        val auto = wall.auto
         val where = wall.neighbour?.let { "Between ${wall.room.name} and ${it.name}" } ?: "${wall.room.name}, ${wall.side.label} side"
 
         val dialog = MaterialAlertDialogBuilder(this)
@@ -1044,11 +1051,11 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val type = buttons.entries.first { it.value.isChecked }.key
                 val mmValue = thickness.text.toString().trim().toIntOrNull()
-                if (mmValue == null || mmValue < 1 || mmValue > 2000) {
+                if (type != WallType.VIRTUAL && (mmValue == null || mmValue < 1 || mmValue > 2000)) {
                     thicknessLayout.error = "Enter a thickness in mm, e.g. 350"
                     return@setOnClickListener
                 }
-                val spec = WallSpec(type, mmValue / 1000.0)
+                val spec = WallSpec(type, if (type == WallType.VIRTUAL) 0.0 else mmValue!! / 1000.0)
                 if (spec == WallSpec(wall.type, wall.thickness)) {
                     dialog.dismiss()
                     return@setOnClickListener
@@ -1066,7 +1073,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 }
                 if (spec == WallSpec(auto, plan.thickness(auto))) plan.wallOverrides.remove(wall.key)
                 else plan.wallOverrides[wall.key] = spec
-                AppLog.i("Wall changed: ${wall.describe()} -> ${type.label} $mmValue mm")
+                AppLog.i("Wall changed: ${wall.describe()} -> ${type.label} ${mm(spec.thickness)} mm")
                 changed()
                 dialog.dismiss()
             }

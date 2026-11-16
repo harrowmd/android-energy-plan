@@ -154,6 +154,11 @@ take care of themselves.
 | Party | 300 mm | Orange | Walls shared with a neighbouring home |
 | Stud | 100 mm | Blue | Timber stud partitions |
 | Glazing | 80 mm | Pink | Fully glazed walls (e.g. conservatories) |
+| Virtual | 0 mm | Yellow, dotted | No wall: two rooms that are one space (e.g. a wall knocked through) |
+
+A **Virtual** wall is always 0 mm and is drawn as a thin yellow dotted line,
+so you can still double-tap it to change it back. It isn't counted in the
+HLP or party wall length, and it can't have a door.
 
 ### Changing a wall
 
@@ -286,8 +291,8 @@ Change which room is on top from the ⋮ menu (select a room first):
   overlaps (rooms it doesn't touch are skipped).
 - **Bring to front / Send to back** – all the way.
 
-Items that would change nothing are greyed out. In the room schedule, rooms
-that lose area to a room on top are marked **\***. A room that's **completely covered**
+Items that would change nothing are greyed out. In the room schedule, a room
+that loses area to a room on top shows just its remaining area. A room that's **completely covered**
 (nothing of it left) isn't listed or counted anywhere – the schedule's
 footnote says how many were left out. It's still in the plan, so you can
 select it, bring it to the front or delete it.
