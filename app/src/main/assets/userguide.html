@@ -215,12 +215,19 @@ or shower, say) the label turns to read upwards when that fits better.</p>
 <h3 id="automatic-walls">Automatic walls</h3>
 <p>Every side of every room gets a wall automatically:</p>
 <ul>
-<li>Where another room on the same floor touches it (or is within 15 cm), that
-  stretch is a shared <strong>Internal</strong> wall, drawn <strong>centred on the join</strong> – half
-  in each room – so the rooms stay neatly aligned.</li>
-<li>If you leave a gap for the wall between two rooms (up to 15 cm), the short
+<li>Where another room on the same floor touches it, that stretch is a shared
+  <strong>Internal</strong> wall, drawn <strong>centred on the join</strong> – half in each room – so
+  the rooms stay neatly aligned.</li>
+<li>Rooms up to 60 cm apart share a wall too, drawn <strong>in the gap</strong> and at least
+  as thick as the gap. So a room fitted against the outside of another (e.g.
+  an extension built against the main house's old outside wall) gets one
+  Internal wall between them, not two External ones, and its length isn't
+  counted in the heat loss perimeter.</li>
+<li>If you leave a gap for the wall between two rooms (up to 60 cm), the short
   bit of wall of the room across the end of that gap is <strong>Internal</strong> too: it
-  is the end of the wall between them, not an outside wall.</li>
+  is the end of the wall between them, not an outside wall. (An External
+  setting made earlier for that room's outside wall on that side doesn't
+  apply to it.)</li>
 <li>Everything else is <strong>External</strong> and is drawn <strong>outside</strong> the room, wrapping
   round it, with square corners.</li>
 </ul>

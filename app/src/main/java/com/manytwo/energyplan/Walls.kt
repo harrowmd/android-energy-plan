@@ -170,10 +170,11 @@ class WallLayout(val walls: List<Wall>, val corners: List<WallCorner>, val bayEn
 }
 
 /**
- * Rooms further apart than this don't share a wall. Rooms are meant to touch
- * (snapping puts them edge to edge); this just forgives a small gap.
+ * Rooms further apart than this don't share a wall. Rooms usually touch (snapping puts them edge
+ * to edge), but a room fitted against the outside of another (e.g. an extension against the main
+ * house's old outside wall) sits a wall's thickness away; that wall is now between the two rooms.
  */
-const val MAX_WALL_GAP = 0.15
+const val MAX_SHARED_GAP = 0.6
 private const val EPS = 1e-6
 private const val MIN_WALL = 0.005
 
@@ -182,7 +183,8 @@ fun mm(m: Double) = Math.round(m * 1000).toString()
 /**
  * Works out every wall of the plan. Each side of each room is first cut back
  * to the part no room above it covers, then split by what lies beyond it:
- * the nearest room within [MAX_WALL_GAP] makes that stretch a shared Internal wall,
+ * the nearest room within [MAX_SHARED_GAP] makes that stretch a shared Internal wall
+ * (at least as thick as the gap it fills),
  * anything else is External. There's no wall between two unallocated
  * spaces. The user's changes in [Plan.wallOverrides] then
  * replace the automatic type and thickness.
@@ -194,16 +196,21 @@ fun Plan.wallLayout(): WallLayout {
             for ((s0, s1, nb) in neighbourSpans(r, side, a, b)) {
                 val n = nb?.first
                 val key = wallKey(r, side, n)
-                val spec = wallOverrides[key]
                 // A short stretch facing the gap between two rooms is the end of the wall between them, not outside.
-                val auto = if (n != null || bridgesGap(r, side, s0, s1)) WallType.INTERNAL else WallType.EXTERNAL
+                val bridge = n == null && bridgesGap(r, side, s0, s1)
+                val auto = if (n != null || bridge) WallType.INTERNAL else WallType.EXTERNAL
+                // The side's setting was made for its outside wall (often just to keep its thickness when the
+                // default changed); an External setting doesn't apply to the bit across a gap.
+                val spec = wallOverrides[key]?.takeUnless { bridge && it.type == WallType.EXTERNAL }
                 val type = spec?.type ?: auto
                 val extra = if (n != null) 0.0 else r.bays.filter { b ->
                     b.side == side && b.span(r).let { (p, q) -> (p + q) / 2 in s0..s1 }
                 }.sumOf { it.perimeter - it.width - it.ownEnds.sumOf { e -> e.third } }
                 // A virtual wall is no wall at all, so it's always 0 mm.
-                val thick = if (type == WallType.VIRTUAL) 0.0 else spec?.thickness ?: thickness(type)
-                all += Wall(key, r, side, n, s0, s1, type, thick, spec != null, nb?.second ?: 0.0, extra, auto)
+                // A shared wall fills the gap between the two rooms, so it's at least that thick.
+                val gap = nb?.second ?: 0.0
+                val thick = if (type == WallType.VIRTUAL) 0.0 else spec?.thickness ?: max(thickness(type), round3(gap))
+                all += Wall(key, r, side, n, s0, s1, type, thick, spec != null, gap, extra, auto)
             }
         }
     }
@@ -306,7 +313,7 @@ private fun Plan.uncoveredSpans(r: Room, side: Side): List<Pair<Double, Double>>
 
 /**
  * Splits the stretch [a]..[b] of [side] of [r] by the room beyond it: for each
- * part, the nearest room within [MAX_WALL_GAP] (the higher one in the stack on
+ * part, the nearest room within [MAX_SHARED_GAP] (the higher one in the stack on
  * a tie) and the gap to it, or null for none.
  */
 private fun Plan.neighbourSpans(r: Room, side: Side, a: Double, b: Double): List<Triple<Double, Double, Pair<Room, Double>?>> {
@@ -316,10 +323,10 @@ private fun Plan.neighbourSpans(r: Room, side: Side, a: Double, b: Double): List
     for ((i, n) in rooms.withIndex()) {
         if (n === r || n.floor != r.floor) continue
         val gap = when (side) {
-            Side.TOP -> if (n.y < r.y - EPS && n.y + n.depth > r.y - MAX_WALL_GAP) r.y - (n.y + n.depth) else null
-            Side.BOTTOM -> (r.y + r.depth).let { e -> if (n.y + n.depth > e + EPS && n.y < e + MAX_WALL_GAP) n.y - e else null }
-            Side.LEFT -> if (n.x < r.x - EPS && n.x + n.width > r.x - MAX_WALL_GAP) r.x - (n.x + n.width) else null
-            Side.RIGHT -> (r.x + r.width).let { e -> if (n.x + n.width > e + EPS && n.x < e + MAX_WALL_GAP) n.x - e else null }
+            Side.TOP -> if (n.y < r.y - EPS && n.y + n.depth > r.y - MAX_SHARED_GAP) r.y - (n.y + n.depth) else null
+            Side.BOTTOM -> (r.y + r.depth).let { e -> if (n.y + n.depth > e + EPS && n.y < e + MAX_SHARED_GAP) n.y - e else null }
+            Side.LEFT -> if (n.x < r.x - EPS && n.x + n.width > r.x - MAX_SHARED_GAP) r.x - (n.x + n.width) else null
+            Side.RIGHT -> (r.x + r.width).let { e -> if (n.x + n.width > e + EPS && n.x < e + MAX_SHARED_GAP) n.x - e else null }
         } ?: continue
         val (n0, n1) = sideSpan(n, side)
         val s0 = max(a, n0)
@@ -345,20 +352,20 @@ private fun Plan.neighbourSpans(r: Room, side: Side, a: Double, b: Double): List
 
 /**
  * True when the stretch [s0]..[s1] of [side] of [r], with no room straight
- * beyond it, is no longer than [MAX_WALL_GAP] and sits across the gap between
+ * beyond it, is no longer than [MAX_SHARED_GAP] and sits across the gap between
  * two rooms beyond it: one ending at [s0] and one starting at [s1]. That gap
  * holds the wall between those two rooms, so this bit of wall is its end and
  * internal, not an outside wall (e.g. a bedroom's wall across the gap between
  * the bathroom and lobby below it).
  */
 private fun Plan.bridgesGap(r: Room, side: Side, s0: Double, s1: Double): Boolean {
-    if (s1 - s0 > MAX_WALL_GAP + EPS) return false
+    if (s1 - s0 > MAX_SHARED_GAP + EPS) return false
     val beyond = rooms.filter { n ->
         n !== r && n.floor == r.floor && when (side) {
-            Side.TOP -> n.y < r.y - EPS && n.y + n.depth > r.y - MAX_WALL_GAP
-            Side.BOTTOM -> (r.y + r.depth).let { e -> n.y + n.depth > e + EPS && n.y < e + MAX_WALL_GAP }
-            Side.LEFT -> n.x < r.x - EPS && n.x + n.width > r.x - MAX_WALL_GAP
-            Side.RIGHT -> (r.x + r.width).let { e -> n.x + n.width > e + EPS && n.x < e + MAX_WALL_GAP }
+            Side.TOP -> n.y < r.y - EPS && n.y + n.depth > r.y - MAX_SHARED_GAP
+            Side.BOTTOM -> (r.y + r.depth).let { e -> n.y + n.depth > e + EPS && n.y < e + MAX_SHARED_GAP }
+            Side.LEFT -> n.x < r.x - EPS && n.x + n.width > r.x - MAX_SHARED_GAP
+            Side.RIGHT -> (r.x + r.width).let { e -> n.x + n.width > e + EPS && n.x < e + MAX_SHARED_GAP }
         }
     }
     val endsAtStart = beyond.any { abs(sideSpan(it, side).second - s0) < EPS }

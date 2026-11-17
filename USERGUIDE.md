@@ -132,12 +132,19 @@ or shower, say) the label turns to read upwards when that fits better.
 
 Every side of every room gets a wall automatically:
 
-- Where another room on the same floor touches it (or is within 15 cm), that
-  stretch is a shared **Internal** wall, drawn **centred on the join** – half
-  in each room – so the rooms stay neatly aligned.
-- If you leave a gap for the wall between two rooms (up to 15 cm), the short
+- Where another room on the same floor touches it, that stretch is a shared
+  **Internal** wall, drawn **centred on the join** – half in each room – so
+  the rooms stay neatly aligned.
+- Rooms up to 60 cm apart share a wall too, drawn **in the gap** and at least
+  as thick as the gap. So a room fitted against the outside of another (e.g.
+  an extension built against the main house's old outside wall) gets one
+  Internal wall between them, not two External ones, and its length isn't
+  counted in the heat loss perimeter.
+- If you leave a gap for the wall between two rooms (up to 60 cm), the short
   bit of wall of the room across the end of that gap is **Internal** too: it
-  is the end of the wall between them, not an outside wall.
+  is the end of the wall between them, not an outside wall. (An External
+  setting made earlier for that room's outside wall on that side doesn't
+  apply to it.)
 - Everything else is **External** and is drawn **outside** the room, wrapping
   round it, with square corners.
 
