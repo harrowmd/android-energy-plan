@@ -87,6 +87,13 @@ class Wall(
     /** The type the app picks by itself for this stretch. */
     val auto: WallType = if (neighbour == null) WallType.EXTERNAL else WallType.INTERNAL,
 ) {
+    /**
+     * How far a shared wall runs on past the room's corner at its start and end; null: half its
+     * thickness. Set for a wall filling a gap, so it stops at the wall it meets there.
+     */
+    var runOnLo: Double? = null
+    var runOnHi: Double? = null
+
     /** Along the room's face, plus the extra round any bay windows. */
     val length get() = round3(to - from + bayExtra)
 
@@ -110,8 +117,8 @@ class Wall(
             // A shared wall ending at the room's corner runs on by half its thickness, so corners close up.
             val (lo, hi) = if (side.horizontal) room.x to room.x + room.width else room.y to room.y + room.depth
             val ext = if (neighbour != null) thickness / 2 else 0.0
-            val from = if (abs(from - lo) < EPS) from - ext else from
-            val to = if (abs(to - hi) < EPS) to + ext else to
+            val from = if (abs(from - lo) < EPS) from - (if (neighbour != null) runOnLo ?: ext else 0.0) else from
+            val to = if (abs(to - hi) < EPS) to + (if (neighbour != null) runOnHi ?: ext else 0.0) else to
             val out = if (side == Side.TOP || side == Side.LEFT) -1 else 1
             val (inner, outer) = if (neighbour != null) {
                 val centre = face + out * gap / 2
@@ -244,6 +251,20 @@ fun Plan.wallLayout(): WallLayout {
 
     // A wall between two rooms is found from both sides; keep the lower room's copy.
     // Between two unallocated spaces there's no wall; a room next to one keeps its wall.
+    // A shared wall filling a gap runs on past the room's corner only to the far face of the shared
+    // wall it meets there (half that wall's thickness), not half its own, so it doesn't poke into the next room.
+    for (w in all) {
+        if (w.neighbour == null || w.gap <= EPS) continue
+        val (lo, hi) = sideSpan(w.room, w.side)
+        val face = w.face
+        fun meets(perp: Side) = all.firstOrNull {
+            it.room === w.room && it.side == perp && it.neighbour != null && it !== w &&
+                (abs(it.from - face) < EPS || abs(it.to - face) < EPS)
+        }
+        val (loSide, hiSide) = if (w.side.horizontal) Side.LEFT to Side.RIGHT else Side.TOP to Side.BOTTOM
+        if (abs(w.from - lo) < EPS) meets(loSide)?.let { w.runOnLo = min(w.thickness, it.thickness) / 2 }
+        if (abs(w.to - hi) < EPS) meets(hiSide)?.let { w.runOnHi = min(w.thickness, it.thickness) / 2 }
+    }
     val walls = all.filter { w ->
         val n = w.neighbour ?: return@filter true
         if (w.room.unallocated && n.unallocated) return@filter false
