@@ -301,6 +301,21 @@ HLP or party wall length, and it can't have a door.</p>
 changes, and each piece keeps its own setting. On an outside wall, all the
 outside stretches on one side of a room share one setting.</p>
 <p>Wall colours can be changed in <strong>⋮ → Settings…</strong>.</p>
+<h3 id="multi-room-edit">Multi-Room Edit</h3>
+<p><strong>⋮ → Multi-Room Edit…</strong> changes several rooms at once:</p>
+<ul>
+<li>Tick the rooms (all are ticked to start with; <strong>Select none / Select all</strong>
+  toggles them). Each shows its height.</li>
+<li>Enter any of <strong>Height (m)</strong>, <strong>External</strong>, <strong>Internal</strong> and <strong>Party wall
+  thickness (mm)</strong>. Under each box is what the ticked rooms have now (or
+  "mixed"). Leave a box blank to keep it as it is.</li>
+<li><strong>OK</strong> applies the values to all ticked rooms. A wall changes when either
+  room on it is ticked, and only walls of that type change (e.g. External
+  400 mm changes External walls only).</li>
+<li>With every room ticked, a new thickness also becomes the plan's default
+  for that wall type, for walls added later.</li>
+<li>One <strong>Undo</strong> takes the whole change back.</li>
+</ul>
 <h2 id="5-bay-windows">5. Bay windows</h2>
 <p><strong>Long-press an outside wall</strong> where you want the bay. Choose:</p>
 <ul>
@@ -330,6 +345,22 @@ the same wall can't overlap.</p>
   them.</li>
 </ul>
 <p><strong>Long-press a bay</strong> to change it, or tap <strong>Remove</strong> in its dialog.</p>
+<p><strong>Party wall at a square bay's end:</strong> where a square bay meets the
+neighbour's bay, tick <strong>Left end is a Party wall</strong> and/or <strong>Right end is a
+Party wall</strong> in its dialog. <strong>Left and right are as seen standing in the
+room, looking out through the bay</strong> – so on a bay in the bottom wall of the
+plan, "left" is the end on the right of the screen. That
+end is then drawn as a Party wall with the plan's Party thickness, and its
+length counts in the party wall length (PWL) instead of the heat loss
+perimeter (HLP).</p>
+<p><strong>Move a bay along its wall:</strong> tap the bay to select it (outlined in orange;
+the status line shows how far it is from the wall's end), then drag it –
+straight away, or press and hold first: holding a <strong>selected</strong> bay never
+opens its dialog (use <strong>Edit</strong> for that). It
+moves in 10 cm steps and stops at the end of its stretch of outside wall –
+it can't go past the end of the wall, onto a wall shared with another room,
+or into another bay. <strong>Edit</strong> changes the selected bay, <strong>Delete</strong> removes it,
+and <strong>Undo</strong> puts it back where it was.</p>
 <p>In the room schedule, rooms with bays are marked <strong>†</strong>, because their area
 is more than width × depth.</p>
 <h2 id="6-doors">6. Doors</h2>
@@ -514,9 +545,9 @@ to a cloud folder is slower (each file is uploaded; allow 20–40 seconds).</p>
 <p><strong>⋮ → Open plan…</strong> lists the plans saved on this tablet, newest first, with
 their rooms and area: tap one to open it. <strong>Other file…</strong> opens Android's
 file picker for a <code>.json</code> plan from somewhere else (for example one copied
-from another device). If you pick the <code>.txt</code>, <code>.pdf</code> or a <code>.jpg</code> of a save,
-the plan saved with it is opened. The current plan can be brought back with
-<strong>Undo</strong>.</p>
+from another device). It shows only plan (<code>.json</code>) files – plus, in some
+cloud folders, files whose type isn't known. The current plan can be brought
+back with <strong>Undo</strong>.</p>
 <p>Android's file picker hides <code>.json</code> files in its <em>Documents</em> view; in the
 picker, open ☰ → the tablet's storage → Documents → EnergyPlan to see them.</p>
 <h3 id="save-and-exit">Save and exit</h3>
@@ -525,7 +556,11 @@ confirm the name), and closes Energy Plan completely once the save has
 finished (it also leaves the Recents list). If the save fails, the app stays
 open. An empty plan has nothing to save, so it just closes. <strong>Exit app</strong> in
 the "Saved" message closes the app straight after a save.</p>
-<p>After Save and exit (or Exit app), the app opens with the list of saved plans. At the top,
+<p><strong>⋮ → Exit (without save)</strong> closes the app without saving – for when you were
+only looking at the plan. If you changed something since the last save, it
+asks first, then throws those changes away: next time the plan is as it was
+last saved.</p>
+<p>After Save and exit, Exit app or Exit (without save), the app opens with the list of saved plans. At the top,
 <strong>Continue</strong> shows the plan from last time with the file it was last saved
 to or opened from (and whether it has unsaved changes); tap it to carry on,
 tap another plan to open it, or choose <strong>New plan</strong>.</p>
@@ -585,6 +620,10 @@ confirm. The plan on screen and your settings are kept.</p>
 <td>Area, height, HLP and PWL for every part and floor</td>
 </tr>
 <tr>
+<td>Multi-Room Edit…</td>
+<td>Set height and wall thicknesses for several rooms at once</td>
+</tr>
+<tr>
 <td>Add floor</td>
 <td>Copy the selected room's building part to the floor above</td>
 </tr>
@@ -635,6 +674,10 @@ confirm. The plan on screen and your settings are kept.</p>
 <tr>
 <td>Save and exit</td>
 <td>Save the plan, then close the app completely</td>
+</tr>
+<tr>
+<td>Exit (without save)</td>
+<td>Close the app; changes since the last save are thrown away</td>
 </tr>
 </tbody>
 </table>

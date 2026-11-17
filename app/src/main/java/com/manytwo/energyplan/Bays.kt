@@ -30,7 +30,27 @@ data class Bay(
     val type: BayType, val side: Side, val offset: Double, val width: Double, val depth: Double,
     /** Where an angled bay's sides turn, out from the room's face; kept equal to its wall's thickness by [Plan.fitBayHinges]. */
     val hinge: Double = 0.0,
+    /**
+     * Square bays: the wall type of the side at the start of the bay (its left end on a top or
+     * bottom wall, its top end on a left or right wall), and at the other end. Null: the same as
+     * the bay's wall. Used to make an end a Party wall where it meets the neighbour's bay.
+     */
+    val startEnd: WallType? = null,
+    val endEnd: WallType? = null,
 ) {
+    /** The ends with their own wall type: (true for the start end, its type, its length). Square bays only. */
+    val ownEnds: List<Triple<Boolean, WallType, Double>>
+        get() = if (type != BayType.SQUARE) emptyList() else
+            listOfNotNull(startEnd?.let { Triple(true, it, depth) }, endEnd?.let { Triple(false, it, depth) })
+
+    /**
+     * True when the start end is on the left, looking out of the room through the bay
+     * (plan y grows downwards: a top wall looks up, a right wall looks right, and so on).
+     */
+    val startIsLeft get() = side == Side.TOP || side == Side.RIGHT
+
+    /** "left" or "right", looking out of the room through the bay. */
+    fun endName(atStart: Boolean) = if (atStart == startIsLeft) "left" else "right"
 
     /** The straight part of an angled bay's sides, through the wall. */
     private val straight get() = min(hinge, depth)
@@ -99,7 +119,8 @@ data class Bay(
         Side.RIGHT -> doubleArrayOf(r.x + r.width + v, r.y + u)
     }
 
-    fun describe() = "${type.label} bay ${fmtM(width)} × ${fmtM(depth)} m on the ${side.label} wall (+${fmtM(area)} m²)"
+    fun describe() = "${type.label} bay ${fmtM(width)} × ${fmtM(depth)} m on the ${side.label} wall (+${fmtM(area)} m²)" +
+        ownEnds.joinToString("") { (s, t, _) -> ", ${endName(s)} end ${t.label}" }
 
     companion object {
         private const val BOW_STEPS = 24

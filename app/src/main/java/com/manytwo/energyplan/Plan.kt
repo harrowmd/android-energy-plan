@@ -250,6 +250,8 @@ class Plan(
                         put("width", round3(b.width))
                         put("depth", round3(b.depth))
                         if (b.type == BayType.ANGLED) put("hinge", round3(b.hinge))
+                        b.startEnd?.let { put("startEnd", it.label) }
+                        b.endEnd?.let { put("endEnd", it.label) }
                         put("area", round3(b.area))
                         put("perimeter", round3(b.perimeter))
                     })
@@ -394,6 +396,7 @@ class Plan(
                                 Bay(
                                     BayType.parse(b.optString("type")) ?: BayType.SQUARE, side,
                                     b.getDouble("offset"), b.getDouble("width"), b.getDouble("depth"),
+                                    startEnd = WallType.parse(b.optString("startEnd")), endEnd = WallType.parse(b.optString("endEnd")),
                                 )
                             }
                         } ?: emptyList(),

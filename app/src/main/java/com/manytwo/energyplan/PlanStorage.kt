@@ -161,7 +161,7 @@ object PlanStorage {
     // --- finding saved plans ---
 
     /** A saved plan's .json file. */
-    class SavedPlan(val fileName: String, val uri: Uri, val modified: Long)
+    class SavedPlan(val fileName: String, val uri: Uri, val modified: Long, val where: String)
 
     /**
      * The .json plans this app saved, newest first: in the picked folder (if any)
@@ -172,11 +172,13 @@ object PlanStorage {
      */
     fun savedPlans(ctx: Context): List<SavedPlan> {
         val found = mutableListOf<SavedPlan>()
-        customFolder(ctx)?.let { folder ->
-            runCatching {
-                folder.listFiles().filter { it.isFile && it.name?.endsWith(".json", ignoreCase = true) == true }
-                    .mapTo(found) { SavedPlan(it.name!!, it.uri, it.lastModified()) }
-            }.onFailure { AppLog.e("Could not list ${folder.name}", it) }
+        // Plans saved to picked folders, while the app may still read that folder.
+        val granted = ctx.contentResolver.persistedUriPermissions.filter { it.isReadPermission }.map { it.uri.toString() }
+        val current = customFolder(ctx)
+        for ((name, uri, at) in folderSaves(ctx)) {
+            val tree = granted.firstOrNull { uri.startsWith(it) } ?: continue
+            val where = if (current != null && tree == current.uri.toString().substringBefore("/document/")) current.name ?: "picked folder" else "earlier folder"
+            found += SavedPlan(name, Uri.parse(uri), at, where)
         }
         val collection = MediaStore.Files.getContentUri("external")
         runCatching {
@@ -187,11 +189,60 @@ object PlanStorage {
                 arrayOf(DOC_DIR, "%.json"), null,
             )?.use { cur ->
                 while (cur.moveToNext()) {
-                    found += SavedPlan(cur.getString(1), ContentUris.withAppendedId(collection, cur.getLong(0)), cur.getLong(2) * 1000)
+                    found += SavedPlan(cur.getString(1), ContentUris.withAppendedId(collection, cur.getLong(0)), cur.getLong(2) * 1000, "tablet")
                 }
             }
         }.onFailure { AppLog.e("Could not list $DOC_DIR", it) }
-        return found.sortedByDescending { it.modified }
+        // Newest first. A provider that gives no date: the save date in the name (yyyy-mm-dd-...).
+        fun dateOf(p: SavedPlan) = maxOf(p.modified, runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.UK).parse(p.fileName.take(10))?.time ?: 0L
+        }.getOrDefault(0L))
+        return found.sortedByDescending { dateOf(it) }
+    }
+
+    private const val PREF_SAVED = "savedFiles"
+    private val wroteLine = Regex("""^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+ I Wrote (\S+\.json) \((content://\S+)\)$""")
+
+    /**
+     * The .json plans saved to a picked folder, as (name, uri, time). Kept by the app because a
+     * cloud folder (e.g. Nextcloud) can't be listed reliably: its provider answers "still loading"
+     * and fetches from the server. The first time, they are recovered from the log's "Wrote" lines.
+     */
+    private fun folderSaves(ctx: Context): MutableList<Triple<String, String, Long>> {
+        val raw = prefs(ctx).getString(PREF_SAVED, null)
+        val out = mutableListOf<Triple<String, String, Long>>()
+        if (raw == null) {
+            val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.UK)
+            for (line in AppLog.text().lineSequence()) {
+                val m = wroteLine.find(line) ?: continue
+                val (time, name, uri) = m.destructured
+                if (uri.startsWith("content://media/")) continue  // the tablet's own Documents, listed from MediaStore
+                out += Triple(name, uri, runCatching { stamp.parse(time)?.time ?: 0L }.getOrDefault(0L))
+            }
+            storeFolderSaves(ctx, out)
+            val latest = out.groupBy { it.second }.map { (_, v) -> v.maxBy { it.third } }.toMutableList()
+            AppLog.i("Saved plans in picked folders: ${latest.size} found in the log")
+            return latest
+        }
+        runCatching {
+            val a = org.json.JSONArray(raw)
+            for (i in 0 until a.length()) a.getJSONObject(i).let { out += Triple(it.getString("name"), it.getString("uri"), it.getLong("at")) }
+        }
+        return out
+    }
+
+    private fun storeFolderSaves(ctx: Context, list: List<Triple<String, String, Long>>) {
+        // One entry per file (the latest save), newest last, at most 300.
+        val latest = list.groupBy { it.second }.map { (_, v) -> v.maxBy { it.third } }.sortedBy { it.third }.takeLast(300)
+        val a = org.json.JSONArray()
+        for ((n, u, t) in latest) a.put(org.json.JSONObject().put("name", n).put("uri", u).put("at", t))
+        prefs(ctx).edit().putString(PREF_SAVED, a.toString()).apply()
+    }
+
+    private fun recordFolderSave(ctx: Context, name: String, uri: Uri) {
+        val list = folderSaves(ctx)
+        list += Triple(name, uri.toString(), System.currentTimeMillis())
+        storeFolderSaves(ctx, list)
     }
 
     /**
@@ -239,6 +290,7 @@ object PlanStorage {
                 ?: folder.createFile(if (mime == "application/json") "application/octet-stream" else mime, name)?.also { known?.put(name, it) }
                 ?: throw IOException("Could not create $name in ${folder.name}")
             (ctx.contentResolver.openOutputStream(file.uri, "wt") ?: throw IOException("Could not write $name")).use(block)
+            if (name.endsWith(".json")) recordFolderSave(ctx, name, file.uri)
             return file.uri
         }
         return if (image) {

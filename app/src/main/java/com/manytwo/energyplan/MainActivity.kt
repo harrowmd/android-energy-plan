@@ -65,7 +65,11 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             }
     }
 
-    private val OPEN_TYPES = arrayOf("application/json", "application/octet-stream", "text/plain", "application/pdf", "image/jpeg")
+    /**
+     * What Other file… shows: plan (.json) files only. The picker filters by type, not name, and some
+     * folders (e.g. cloud ones) don't know a .json file's type, so files of unknown type are shown too.
+     */
+    private val OPEN_TYPES = arrayOf("application/json", "application/octet-stream")
 
     private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { openPlan(it) }
@@ -105,10 +109,19 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         b.addButton.setOnClickListener { addRoomFromKeyboard() }
         b.editButton.setOnClickListener {
             selectedDoor()?.let { (room, door) -> return@setOnClickListener showDoorDialog(room, door, door) }
+            selectedBay()?.let { (room, bay) -> return@setOnClickListener onBayEdit(room, bay) }
             plan.room(b.planView.selectedId)?.let { editRoom(it) }
         }
         b.deleteButton.setOnClickListener {
             selectedDoor()?.let { (room, door) -> return@setOnClickListener removeDoor(room, door) }
+            selectedBay()?.let { (room, bay) ->
+                pushUndo()
+                room.bays = room.bays - bay
+                AppLog.i("Removed ${bay.describe()} from '${room.name}' (${room.floor.title})")
+                b.planView.selectBay(null, null)
+                changed()
+                return@setOnClickListener
+            }
             deleteSelected()
         }
         updateUi()
@@ -151,6 +164,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.action_summary -> showSummary()
+            R.id.action_multi_edit -> showMultiRoomEdit()
             R.id.action_add_floor -> plan.room(b.planView.selectedId)?.floor?.above?.let { addFloor(it) }
             R.id.action_add_basement -> addFloor(Floor.BASEMENT)
             R.id.action_bring_forward -> restack { plan.bringForward(it) }
@@ -161,6 +175,7 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             R.id.action_share_log -> shareLog()
             R.id.action_open -> chooseSavedPlan()
             R.id.action_exit -> confirmExit()
+            R.id.action_exit_no_save -> exitWithoutSave()
             R.id.action_rename -> askName("Rename plan", "Rename") {}
             R.id.action_new -> confirmNewPlan()
             R.id.action_settings -> showSettings()
@@ -259,6 +274,28 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
         AppLog.i("Moved door in '${room.name}' ${door.side.label} wall: ${fmtM(old.offset)} -> ${fmtM(door.offset)} m from its end")
         changed()
+    }
+
+    override fun onBaySelected(room: Room?, bay: Bay?) {
+        updateUi()
+        invalidateOptionsMenu()
+    }
+
+    override fun onBayMoved(room: Room, old: Bay, bay: Bay) {
+        if (old == bay) {
+            // Back where it started: nothing to log or undo.
+            cancelUndo()
+            return
+        }
+        AppLog.i("Moved ${bay.type.label.lowercase()} bay in '${room.name}' ${bay.side.label} wall: ${fmtM(old.offset)} -> ${fmtM(bay.offset)} m from its end")
+        changed()
+    }
+
+    /** The selected bay and its room, if it still exists. */
+    private fun selectedBay(): Pair<Room, Bay>? {
+        val (id, bay) = b.planView.selectedBay ?: return null
+        val room = plan.room(id) ?: return null
+        return if (bay in room.bays) room to bay else null
     }
 
     override fun onBayEdit(room: Room, bay: Bay) {
@@ -496,7 +533,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         updateToolbar()
         val room = plan.room(b.planView.selectedId)
         val door = selectedDoor()
+        val bay = selectedBay()
         b.status.text = when {
+            bay != null -> String.format(
+                Locale.UK, "Bay window: %s, %s wall · %s · %s m from the wall's end\nDrag to slide along the wall · hold or Edit to change",
+                bay.first.name, bay.second.side.label, bay.second.describe().substringBefore(" on the "), fmtM(bay.second.offset),
+            )
             door != null -> String.format(
                 Locale.UK, "Door: %s, %s wall · %s m · hinged %s · opens %s\nDrag to slide along the wall · 2× tap or Edit to change",
                 door.first.name, door.second.side.label, fmtM(door.second.width), door.second.hinge.label.lowercase(), door.second.swing.label.lowercase(),
@@ -526,8 +568,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                 if (b.planView.oneFingerDraw) "Drag: draw · hold: select room / add bay · tap wall: add door · drag a side handle: resize · 2× tap: edit" else "Drag: pan · hold: select room / add bay · tap wall: add door · drag a side handle: resize · 2× tap: edit",
             )
         }
-        b.editButton.isEnabled = room != null || door != null
-        b.deleteButton.isEnabled = room != null || door != null
+        b.editButton.isEnabled = room != null || door != null || bay != null
+        b.deleteButton.isEnabled = room != null || door != null || bay != null
     }
 
     // --- files ---
@@ -627,6 +669,51 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
     }
 
     /** Closes the app completely: off the screen, out of Recents, and the process ended. */
+    /**
+     * Exit (without save): for when the plan was only being looked at. Changes since the last save
+     * are thrown away (after asking), so next time the plan is as it was last saved.
+     */
+    private fun exitWithoutSave() {
+        if (saving) {
+            exitAfterSave = true
+            Toast.makeText(this, "Closing when the save has finished…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!unsaved || plan.rooms.isEmpty()) {
+            AppLog.i("Exit without save (no unsaved changes)")
+            return exitApp()
+        }
+        val file = prefs.getString(PREF_PLAN_FILE, null)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Exit without saving?")
+            .setMessage(
+                if (file != null) "The changes to '${plan.name}' since it was last saved are thrown away. Next time it opens as saved in $file."
+                else "'${plan.name}' has never been saved: it is thrown away."
+            )
+            .setPositiveButton("Exit without saving") { _, _ ->
+                Toast.makeText(this, "Closing…", Toast.LENGTH_SHORT).show()
+                thread {
+                    // Put the last saved version back as the working plan (the picked folder can be slow to list).
+                    val saved = file?.let { f -> PlanStorage.savedPlans(this).firstOrNull { it.fileName == f } }
+                    val restored = saved?.let { runCatching { Plan.fromJson(PlanStorage.readText(this, it.uri)) }.getOrNull() }
+                    runOnUiThread {
+                        if (restored != null) {
+                            AppLog.i("Exit without save: changes to '${plan.name}' thrown away, back to $file")
+                            plan = restored
+                        } else {
+                            AppLog.i("Exit without save: '${plan.name}' thrown away" + (file?.let { " ($it not found)" } ?: ""))
+                            plan = Plan()
+                            prefs.edit().remove(PREF_PLAN_FILE).apply()
+                        }
+                        unsaved = false
+                        exitApp()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun exitApp() {
         AppLog.i("Exit")
         PlanStorage.autosave(this, plan)
@@ -708,8 +795,8 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
             val labels = found.map { f ->
                 val date = java.text.SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK).format(java.util.Date(f.modified))
                 runCatching { Plan.fromJson(PlanStorage.readText(this, f.uri)) }.fold(
-                    { p -> p.name to "${f.fileName}\n$date · ${p.rooms.size} rooms · ${fmtM(p.totalArea)} m²" },
-                    { f.fileName to "$date · can't be read" },
+                    { p -> p.name to "${f.fileName} · ${f.where}\n${if (f.modified > 0) "$date · " else ""}${p.rooms.size} rooms · ${fmtM(p.totalArea)} m²" },
+                    { f.fileName to "${f.where} · $date · can't be read" },
                 ).let { (title, details) -> entry(title, details) }
             }.toMutableList<CharSequence>()
             // After Exit, the plan from last time comes first, with the file it was last saved to or opened from.
@@ -750,42 +837,70 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
     }
 
+    /**
+     * Opens a plan file. Reading happens in the background: a cloud file (e.g. Nextcloud) is
+     * downloaded as it is read, and Android doesn't allow that on the screen's thread.
+     */
     private fun openPlan(picked: Uri) {
-        var uri = picked
-        // A .txt, .pdf or .jpg from a save: open the .json saved with it.
-        val name = PlanStorage.displayName(this, picked)
-        val planName = name?.let(PlanStorage::planFileFor)
-        if (planName != null) {
-            val match = PlanStorage.savedPlans(this).firstOrNull { it.fileName == planName }
-            if (match == null) {
-                AppLog.w("Picked $name: no saved plan $planName found")
-                MaterialAlertDialogBuilder(this)
-                    .setTitle("That's not a plan file")
-                    .setMessage("$name was written by a save, but the plan itself is in $planName, which wasn't found.\n\nPick the .json file instead.")
-                    .setPositiveButton("OK", null)
-                    .show()
-                return
+        Toast.makeText(this, "Opening…", Toast.LENGTH_SHORT).show()
+        thread {
+            var uri = picked
+            // A .txt, .pdf or .jpg from a save: open the .json saved with it.
+            val name = PlanStorage.displayName(this, picked)
+            val planName = name?.let(PlanStorage::planFileFor)
+            if (planName != null) {
+                val match = PlanStorage.savedPlans(this).firstOrNull { it.fileName == planName }
+                if (match == null) {
+                    AppLog.w("Picked $name: no saved plan $planName found")
+                    runOnUiThread {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("That's not a plan file")
+                            .setMessage("$name was written by a save, but the plan itself is in $planName, which wasn't found.\n\nPick the .json file instead.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                    return@thread
+                }
+                AppLog.i("Picked $name: opening the plan saved with it, $planName")
+                uri = match.uri
             }
-            AppLog.i("Picked $name: opening the plan saved with it, $planName")
-            uri = match.uri
-        }
-        val fileName = planName ?: name
-        AppLog.i("Opening $uri")
-        try {
-            val loaded = Plan.fromJson(PlanStorage.readText(this, uri))
-            AppLog.i("Opened '${loaded.name}' with ${loaded.rooms.size} rooms")
-            pushUndo()
-            setPlan(loaded)
-            unsaved = false
-            prefs.edit().putString(PREF_PLAN_FILE, fileName).apply()
-            PlanStorage.autosave(this, plan)
-        } catch (e: Exception) {
-            AppLog.e("Open failed for $uri", e)
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Can't open that file")
-                .setMessage("It doesn't look like an Energy Plan JSON file.\n\n${e.message}")
-                .setPositiveButton("OK", null)
-                .show()
+            val fileName = planName ?: name
+            AppLog.i("Opening $uri")
+            val text = try {
+                PlanStorage.readText(this, uri)
+            } catch (e: Exception) {
+                AppLog.e("Could not read $uri", e)
+                runOnUiThread {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Can't read that file")
+                        .setMessage("${fileName ?: "The file"} could not be read${if (uri.authority?.contains("nextcloud") == true) " from Nextcloud (is the tablet online?)" else ""}.\n\n${e.message ?: e.javaClass.simpleName}")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+                return@thread
+            }
+            val loaded = try {
+                Plan.fromJson(text)
+            } catch (e: Exception) {
+                AppLog.e("Open failed for $uri", e)
+                runOnUiThread {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Can't open that file")
+                        .setMessage("It doesn't look like an Energy Plan JSON file.\n\n${e.message}")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+                return@thread
+            }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                AppLog.i("Opened '${loaded.name}' with ${loaded.rooms.size} rooms")
+                pushUndo()
+                setPlan(loaded)
+                unsaved = false
+                prefs.edit().putString(PREF_PLAN_FILE, fileName).apply()
+                PlanStorage.autosave(this, plan)
+            }
         }
     }
 
@@ -939,12 +1054,40 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
         }
         val (depthLayout, depthInput) = field("Depth out from the wall (m)", initial.depth)
         val (widthLayout, widthInput) = field("Width along the wall (m)", initial.width)
+        // Square bays: either end can be a Party wall (where it meets the neighbour's bay).
+        val partyThick = mm(plan.thickness(WallType.PARTY))
+        // Left and right as seen looking out of the room through the bay; left is listed first.
+        val leftIsStart = initial.startIsLeft
+        val leftParty = android.widget.CheckBox(this).apply {
+            text = "Left end is a Party wall ($partyThick mm)"
+            isChecked = (if (leftIsStart) initial.startEnd else initial.endEnd) == WallType.PARTY
+        }
+        val rightParty = android.widget.CheckBox(this).apply {
+            text = "Right end is a Party wall ($partyThick mm)"
+            isChecked = (if (leftIsStart) initial.endEnd else initial.startEnd) == WallType.PARTY
+        }
+        val endsNote = TextView(this).apply {
+            text = "Left and right as seen looking out of the room through the bay."
+            setPadding(dp(4), 0, 0, 0)
+        }
+        val startParty = if (leftIsStart) leftParty else rightParty
+        val endParty = if (leftIsStart) rightParty else leftParty
+        fun showEnds(t: BayType) {
+            leftParty.visibility = if (t == BayType.SQUARE) View.VISIBLE else View.GONE
+            rightParty.visibility = leftParty.visibility
+            endsNote.visibility = leftParty.visibility
+        }
+        showEnds(initial.type)
+        group.setOnCheckedChangeListener { _, id -> showEnds(buttons.entries.first { it.value.id == id }.key) }
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, dp(8), pad, 0)
             addView(group)
             addView(depthLayout)
             addView(widthLayout)
+            addView(leftParty)
+            addView(rightParty)
+            addView(endsNote)
         }
         val available = range.second - range.first
         val dialog = MaterialAlertDialogBuilder(this)
@@ -969,7 +1112,12 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
                     return@setOnClickListener
                 }
                 val sideStart = if (initial.side.horizontal) room.x else room.y
-                val bay = Bay(type, initial.side, round3(start - sideStart), round3(width), round3(depth), plan.bayHinge(room, type, initial.side))
+                val square = type == BayType.SQUARE
+                val bay = Bay(
+                    type, initial.side, round3(start - sideStart), round3(width), round3(depth), plan.bayHinge(room, type, initial.side),
+                    startEnd = if (square && startParty.isChecked) WallType.PARTY else null,
+                    endEnd = if (square && endParty.isChecked) WallType.PARTY else null,
+                )
                 // Bays on the same wall mustn't overlap.
                 val others = room.bays.filter { it != existing && it.side == bay.side }
                 val (a, z) = bay.span(room)
@@ -1161,6 +1309,133 @@ class MainActivity : AppCompatActivity(), PlanView.Listener {
      * The floor to show for [p]: [preferred] if it has rooms (or the plan is
      * empty), otherwise the lowest floor that has some.
      */
+    /**
+     * Multi-Room Edit: tick rooms, then set any of height, External, Internal and Party wall
+     * thickness for all of them at once (blank = leave as it is). One Undo step.
+     * A wall is changed when either room on it is ticked.
+     */
+    private fun showMultiRoomEdit() {
+        val rooms = plan.rooms.filter { !it.unallocated }.sortedWith(compareBy({ it.floor }, { it.name.lowercase() }))
+        if (rooms.isEmpty()) {
+            Toast.makeText(this, "No rooms yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val pad = dp(24)
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, dp(8), pad, 0) }
+        fun caption(t: String) = TextView(this).apply {
+            text = t
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(12), 0, dp(4))
+        }
+        body.addView(caption("Rooms"))
+        val showFloors = plan.floors().size > 1
+        val boxes = rooms.associateWith { r ->
+            android.widget.CheckBox(this).apply {
+                text = String.format(Locale.UK, "%s%s  ·  h %s m", r.name, if (showFloors) " (${r.floor.title})" else "", fmtM(r.height))
+                isChecked = true
+                body.addView(this)
+            }
+        }
+        val allNone = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            text = "Select none"
+            body.addView(this)
+        }
+        body.addView(caption("New values (leave blank to keep)"))
+        fun field(hint: String, decimal: Boolean): Pair<TextInputLayout, TextInputEditText> {
+            val e = TextInputEditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or if (decimal) InputType.TYPE_NUMBER_FLAG_DECIMAL else 0
+            }
+            val l = TextInputLayout(this).apply { this.hint = hint; addView(e) }
+            body.addView(l)
+            return l to e
+        }
+        val (heightL, heightE) = field("Height (m)", true)
+        val wallTypes = listOf(WallType.EXTERNAL, WallType.INTERNAL, WallType.PARTY)
+        val wallFields = wallTypes.associateWith { field("${it.label} wall thickness (mm)", false) }
+
+        fun selected() = rooms.filter { boxes.getValue(it).isChecked }
+        fun affected(type: WallType, sel: List<Room>): List<Wall> {
+            val ids = sel.map { it.id }.toSet()
+            return plan.wallLayout().walls.filter { w -> w.type == type && (w.room.id in ids || w.neighbour?.id in ids) }
+        }
+        fun now(values: List<String>) = when (values.distinct().size) {
+            0 -> "none"
+            1 -> "now ${values.first()}"
+            else -> "now mixed: ${values.distinct().sorted().joinToString(", ")}"
+        }
+        // What the ticked rooms have now, under each box.
+        fun refresh() {
+            val sel = selected()
+            heightL.helperText = now(sel.map { fmtM(it.height) + " m" })
+            for ((t, f) in wallFields) f.first.helperText = now(affected(t, sel).map { mm(it.thickness) + " mm" })
+            allNone.text = if (sel.size == rooms.size) "Select none" else "Select all"
+        }
+        boxes.values.forEach { it.setOnCheckedChangeListener { _, _ -> refresh() } }
+        allNone.setOnClickListener {
+            val all = selected().size != rooms.size
+            boxes.values.forEach { it.isChecked = all }
+        }
+        refresh()
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Multi-Room Edit")
+            .setView(ScrollView(this).apply { addView(body) })
+            .setPositiveButton("OK", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val sel = selected()
+                if (sel.isEmpty()) {
+                    Toast.makeText(this, "Tick at least one room", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                // Check every value before changing anything.
+                val hText = heightE.text.toString().trim().replace(',', '.')
+                val h = if (hText.isEmpty()) null else hText.toDoubleOrNull()?.takeIf { it > 0 && it <= 100 }?.let(::round3)
+                    ?: run { heightL.error = "Enter a height in metres, e.g. 2.48"; return@setOnClickListener }
+                heightL.error = null
+                val thick = mutableMapOf<WallType, Double>()
+                for ((t, f) in wallFields) {
+                    val txt = f.second.text.toString().trim()
+                    if (txt.isEmpty()) { f.first.error = null; continue }
+                    val v = txt.toIntOrNull()?.takeIf { it in 1..2000 }
+                        ?: run { f.first.error = "Enter a thickness in mm, e.g. 350"; return@setOnClickListener }
+                    f.first.error = null
+                    thick[t] = v / 1000.0
+                }
+                if (h == null && thick.isEmpty()) {
+                    Toast.makeText(this, "Nothing to change: enter a new value", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                pushUndo()
+                val done = mutableListOf<String>()
+                if (h != null) {
+                    sel.forEach { it.height = h }
+                    prefs.edit().putFloat("lastHeight", h.toFloat()).apply()
+                    done += "height ${fmtM(h)} m"
+                }
+                val allTicked = sel.size == rooms.size
+                for ((t, v) in thick) {
+                    val walls = affected(t, sel)
+                    // All rooms ticked: it becomes the plan's thickness for that type, for new walls too.
+                    if (allTicked) plan.wallDefaults[t] = v
+                    for (w in walls) {
+                        val spec = WallSpec(t, v)
+                        if (spec == WallSpec(w.auto, plan.thickness(w.auto))) plan.wallOverrides.remove(w.key)
+                        else plan.wallOverrides[w.key] = spec
+                    }
+                    done += "${t.label} ${mm(v)} mm (${walls.size} walls)"
+                }
+                AppLog.i("Multi-Room Edit, ${sel.size} rooms (${sel.joinToString { it.name }}): ${done.joinToString("; ")}")
+                changed()
+                dialog.dismiss()
+                Toast.makeText(this, "Changed ${sel.size} rooms: ${done.joinToString("; ")}", Toast.LENGTH_LONG).show()
+            }
+        }
+        dialog.show()
+    }
+
     private fun startFloor(p: Plan, preferred: Floor?): Floor {
         val floors = p.floors()
         return when {

@@ -15,6 +15,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.round
@@ -49,6 +50,8 @@ class PlanRenderer(private val d: Float) {
     private val bayWall = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeJoin = Paint.Join.MITER; strokeCap = Paint.Cap.SQUARE
     }
+    /** A square bay's end with its own wall type: a band on the bay's outside, out to the front's outer face. */
+    private val bayEndFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val doorArc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF000000.toInt(); style = Paint.Style.STROKE; strokeWidth = 0.6f * d
     }
@@ -219,7 +222,9 @@ class PlanRenderer(private val d: Float) {
                 c.drawRect(screen(if (w.side.horizontal) doubleArrayOf(p, rc[1], q, rc[3]) else doubleArrayOf(rc[0], p, rc[2], q)), wallFill)
             }
         }
-        for (w in layout.walls) for (b in w.bays) drawBay(c, w, b, scale, offX, offY, w.room.id == selectedId)
+        for (w in layout.walls) for (b in w.bays) {
+            drawBay(c, w, b, layout.bayEnds.filter { it.room === w.room && it.bay == b }, scale, offX, offY, w.room.id == selectedId)
+        }
         for (k in layout.corners.sortedBy { it.type.ordinal }) {
             wallFill.color = WallColors[k.type]
             c.drawRect(screen(k.rect), wallFill)
@@ -254,18 +259,62 @@ class PlanRenderer(private val d: Float) {
      * A bay window: the wall follows its outline (its full thickness outside
      * the bay), then the bay's floor is filled like the room it belongs to.
      */
-    private fun drawBay(c: Canvas, w: Wall, b: Bay, scale: Float, offX: Float, offY: Float, selected: Boolean) {
+    private fun drawBay(c: Canvas, w: Wall, b: Bay, ends: List<BayEnd>, scale: Float, offX: Float, offY: Float, selected: Boolean) {
         val pts = b.outline(w.room).map { (offX + it[0] * scale).toFloat() to (offY + it[1] * scale).toFloat() }
         val path = Path().apply {
             moveTo(pts[0].first, pts[0].second)
             for ((x, y) in pts.drop(1)) lineTo(x, y)
         }
+        // A square bay's ends with their own type (e.g. Party) are drawn in that type's colour and thickness;
+        // the rest of the outline in the bay's wall type.
+        val startOwn = ends.firstOrNull { it.atStart }
+        val endOwn = ends.firstOrNull { !it.atStart }
+        val main = if (ends.isEmpty()) path else Path().apply {
+            val from = if (startOwn != null) 1 else 0
+            val to = if (endOwn != null) pts.size - 2 else pts.size - 1
+            moveTo(pts[from].first, pts[from].second)
+            for (i in from + 1..to) lineTo(pts[i].first, pts[i].second)
+        }
         // Stroked twice as thick, centred on the outline; the room and the bay's own floor cover the inner half.
-        bayWall.color = WallColors[w.type]
-        bayWall.strokeWidth = max(1.5f, (2 * w.thickness * scale).toFloat())
         c.save()
         c.clipOutRect(screenRect(w.room, scale, offX, offY))
-        c.drawPath(path, bayWall)
+        bayWall.color = WallColors[w.type]
+        bayWall.strokeWidth = max(1.5f, (2 * w.thickness * scale).toFloat())
+        // With an end of its own, the front stops square at that corner instead of running on past it.
+        bayWall.strokeCap = if (ends.isEmpty()) Paint.Cap.SQUARE else Paint.Cap.BUTT
+        c.drawPath(main, bayWall)
+        bayWall.strokeCap = Paint.Cap.SQUARE
+        // Each end with its own type runs from the room's face out to the outer face of the bay's front,
+        // drawn last so it has the corner.
+        val reach = (w.thickness * scale).toFloat()
+        // Along the wall, from the bay's start to its end: the outside of the start end is the other way.
+        val first = pts.first()
+        val last = pts.last()
+        val alongLen = hypot(last.first - first.first, last.second - first.second)
+        for (e in ends) {
+            if (alongLen <= 0f) break
+            // From the room's face (p) out to the bay's front (q), then on by the front's thickness:
+            // a band [e.thickness] wide on the outside of the bay, the same width all the way.
+            val (p, q) = if (e.atStart) pts[0] to pts[1] else pts[pts.size - 1] to pts[pts.size - 2]
+            val len = hypot(q.first - p.first, q.second - p.second)
+            if (len <= 0f) continue
+            val ux = (q.first - p.first) / len
+            val uy = (q.second - p.second) / len
+            val sign = if (e.atStart) -1f else 1f
+            val nx = sign * (last.first - first.first) / alongLen
+            val ny = sign * (last.second - first.second) / alongLen
+            val t = max(1.5f, (e.thickness * scale).toFloat())
+            val qx = q.first + ux * reach
+            val qy = q.second + uy * reach
+            bayEndFill.color = WallColors[e.type]
+            c.drawPath(Path().apply {
+                moveTo(p.first, p.second)
+                lineTo(qx, qy)
+                lineTo(qx + nx * t, qy + ny * t)
+                lineTo(p.first + nx * t, p.second + ny * t)
+                close()
+            }, bayEndFill)
+        }
         c.restore()
         val floor = when {
             selected -> fillSelected

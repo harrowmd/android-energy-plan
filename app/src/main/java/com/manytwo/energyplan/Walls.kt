@@ -135,9 +135,14 @@ class Wall(
 /** The square where two outside walls of a room meet at its corner. */
 class WallCorner(val room: Room, val rect: DoubleArray, val type: WallType)
 
-class WallLayout(val walls: List<Wall>, val corners: List<WallCorner>) {
+/** An end of a square bay with its own wall type (e.g. Party, where it meets the neighbour's bay). */
+class BayEnd(val room: Room, val bay: Bay, val atStart: Boolean, val type: WallType, val thickness: Double, val length: Double)
+
+class WallLayout(val walls: List<Wall>, val corners: List<WallCorner>, val bayEnds: List<BayEnd> = emptyList()) {
     /** Just the walls of rooms on [floor]. */
-    fun on(floor: Floor) = WallLayout(walls.filter { it.room.floor == floor }, corners.filter { it.room.floor == floor })
+    fun on(floor: Floor) = WallLayout(
+        walls.filter { it.room.floor == floor }, corners.filter { it.room.floor == floor }, bayEnds.filter { it.room.floor == floor },
+    )
 
     /** How far shared walls reach into [r] across its [side], so its labels can keep clear. */
     fun intrusion(r: Room, side: Side): Double {
@@ -158,8 +163,9 @@ class WallLayout(val walls: List<Wall>, val corners: List<WallCorner>) {
 
     /** Total length per (type, thickness), in [WallType.menuOrder]. */
     fun totals(): List<Triple<WallType, Double, Double>> =
-        walls.groupBy { it.type to it.thickness }
-            .map { (k, ws) -> Triple(k.first, k.second, round3(ws.sumOf { it.length })) }
+        (walls.map { Triple(it.type, it.thickness, it.length) } + bayEnds.map { Triple(it.type, it.thickness, it.length) })
+            .groupBy { it.first to it.second }
+            .map { (k, ws) -> Triple(k.first, k.second, round3(ws.sumOf { it.third })) }
             .sortedWith(compareBy({ WallType.menuOrder.indexOf(it.first) }, { it.second }))
 }
 
@@ -194,7 +200,7 @@ fun Plan.wallLayout(): WallLayout {
                 val type = spec?.type ?: auto
                 val extra = if (n != null) 0.0 else r.bays.filter { b ->
                     b.side == side && b.span(r).let { (p, q) -> (p + q) / 2 in s0..s1 }
-                }.sumOf { it.perimeter - it.width }
+                }.sumOf { it.perimeter - it.width - it.ownEnds.sumOf { e -> e.third } }
                 // A virtual wall is no wall at all, so it's always 0 mm.
                 val thick = if (type == WallType.VIRTUAL) 0.0 else spec?.thickness ?: thickness(type)
                 all += Wall(key, r, side, n, s0, s1, type, thick, spec != null, nb?.second ?: 0.0, extra, auto)
@@ -213,10 +219,18 @@ fun Plan.wallLayout(): WallLayout {
             if (hw == null || vw == null || hw.neighbour != null || vw.neighbour != null) continue
             val x0 = if (v == Side.LEFT) x - vw.thickness else x
             val y0 = if (h == Side.TOP) y - hw.thickness else y
+            // A square bay flush with this corner, whose end there has its own type (e.g. Party): the
+            // corner is part of that end wall, so it takes its type.
+            fun ownEndAt(side: Side, along: Double) = r.bays.firstNotNullOfOrNull { b ->
+                if (b.side != side) null else {
+                    val (a, z) = b.span(r)
+                    b.ownEnds.firstOrNull { (atStart, _, _) -> abs((if (atStart) a else z) - along) < EPS }?.second
+                }
+            }
             corners += WallCorner(
                 r,
                 doubleArrayOf(x0, y0, x0 + vw.thickness, y0 + hw.thickness),
-                if (hw.type.ordinal >= vw.type.ordinal) hw.type else vw.type,
+                ownEndAt(h, x) ?: ownEndAt(v, y) ?: if (hw.type.ordinal >= vw.type.ordinal) hw.type else vw.type,
             )
         }
     }
@@ -229,7 +243,11 @@ fun Plan.wallLayout(): WallLayout {
         val twin = all.any { it.room === n && it.neighbour === w.room && it.key == w.key }
         !twin || rooms.indexOf(w.room) < rooms.indexOf(n)
     }
-    return WallLayout(walls, corners)
+    // Square bays' ends with their own type: counted as that type, not as the bay's wall.
+    val ends = rooms.flatMap { r ->
+        r.bays.flatMap { b -> b.ownEnds.map { (s, t, len) -> BayEnd(r, b, s, t, thickness(t), len) } }
+    }
+    return WallLayout(walls, corners, ends)
 }
 
 /**
@@ -387,6 +405,11 @@ fun Plan.dimensions(layout: WallLayout = wallLayout()): List<DimRow> {
         val key = owner.part to owner.floor
         if (w.type in HLP_TYPES) hlp[key] = (hlp[key] ?: 0.0) + w.length
         if (w.type == WallType.PARTY) pwl[key] = (pwl[key] ?: 0.0) + w.length
+    }
+    for (e in layout.bayEnds) {
+        val key = e.room.part to e.room.floor
+        if (e.type in HLP_TYPES) hlp[key] = (hlp[key] ?: 0.0) + e.length
+        if (e.type == WallType.PARTY) pwl[key] = (pwl[key] ?: 0.0) + e.length
     }
     // Every part and floor with rooms, or with walls of its own (e.g. only unallocated space).
     val byKey = rooms.groupBy { it.part to it.floor }

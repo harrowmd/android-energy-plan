@@ -31,6 +31,8 @@ import kotlin.math.round
  *    space clears the selection.
  *  - Double-tap a room to edit its sizes, or a wall to change its type or thickness.
  *  - Long-press an outside wall to add a bay window there, or a bay to change or remove it.
+ *    Tap a bay to select it, then drag it along its wall (it stays on that stretch of
+ *    outside wall and doesn't run into another bay).
  *  - Tap a wall to add a door; tap a door to select it, then drag it along
  *    its wall. Double-tap a door to change or remove it.
  *  - Two fingers pan and pinch-zoom.
@@ -61,6 +63,10 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         fun onDoorSelected(room: Room?, door: Door?)
         /** The selected door was dragged along its wall (after [onBeforeMove]) from [old] to [door]. */
         fun onDoorMoved(room: Room, old: Door, door: Door)
+        /** A bay was selected, or the selection cleared ([bay] null). */
+        fun onBaySelected(room: Room?, bay: Bay?)
+        /** The selected bay was dragged along its wall (after [onBeforeMove]) from [old] to [bay]. */
+        fun onBayMoved(room: Room, old: Bay, bay: Bay)
     }
 
     var listener: Listener? = null
@@ -82,12 +88,17 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     var selectedDoor: Pair<Long, Door>? = null
         private set
 
+    /** The selected bay window: its room's id and the bay. Selecting a room or door clears it. */
+    var selectedBay: Pair<Long, Bay>? = null
+        private set
+
     /** The floor being shown. */
     var floor: Floor = Floor.GROUND
         set(value) {
             field = value
             if (plan.room(selectedId)?.floor != value) select(null)
             if (plan.room(selectedDoor?.first)?.floor != value) selectDoor(null, null)
+            if (plan.room(selectedBay?.first)?.floor != value) selectBay(null, null)
             invalidate()
         }
 
@@ -100,6 +111,9 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
 
     private val d = resources.displayMetrics.density
     private val renderer = PlanRenderer(d)
+    private val bayHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFE67E00.toInt(); style = Paint.Style.STROKE; strokeWidth = 3.5f * d; strokeJoin = Paint.Join.ROUND
+    }
     private val gridLabel = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF78909C.toInt(); textSize = 11f * d }
 
     // View transform: screen = world(m) * scale + offset
@@ -108,7 +122,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     private var offY = 24f * d
     private var fitted = false
 
-    private enum class Mode { IDLE, DRAW, MOVE, RESIZE, DOOR, PAN, PINCH, LONG_PRESS }
+    private enum class Mode { IDLE, DRAW, MOVE, RESIZE, DOOR, BAY, PAN, PINCH, LONG_PRESS }
 
     private var mode = Mode.IDLE
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -150,6 +164,12 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 selectDoor(room, door)
                 return true
             }
+            // A bay: select it, to drag it along its wall.
+            bayAt(e.x, e.y)?.let { (room, bay) ->
+                selectBay(room, bay)
+                return true
+            }
+            if (selectedBay != null) selectBay(null, null)
             val wall = if (bayAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_ON_DP) ?: if (roomAt(e.x, e.y) == null) wallAt(e.x, e.y, WALL_REACH_DP) else null else null
             if (wall != null && wall.type == WallType.VIRTUAL) {
                 Toast.makeText(context, "A virtual wall has no door: 2× tap to change the wall", Toast.LENGTH_SHORT).show()
@@ -190,8 +210,15 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             // A bay: change it. On a wall itself: add a bay there. Inside a room: select it.
             // Just outside a wall: the wall again.
             bayAt(e.x, e.y)?.let { (room, bay) ->
-                mode = Mode.LONG_PRESS
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                // The selected bay: holding it starts the slide (a finger that rests before moving
+                // shouldn't open the dialog). Any other bay: open its dialog.
+                val sel = selectedBay
+                if (sel != null && sel.first == room.id && sel.second == bay) {
+                    startBayDrag(room, bay)
+                    return
+                }
+                mode = Mode.LONG_PRESS
                 select(room.id)
                 listener?.onBayEdit(room, bay)
                 return
@@ -226,6 +253,10 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
             selectedDoor = null
             listener?.onDoorSelected(null, null)
         }
+        if (id != null && selectedBay != null) {
+            selectedBay = null
+            listener?.onBaySelected(null, null)
+        }
         selectedId = plan.room(id)?.id
         listener?.onSelectionChanged(plan.room(selectedId))
         invalidate()
@@ -236,8 +267,20 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         val sel = if (room != null && door != null && door in room.doors) room.id to door else null
         if (sel == selectedDoor) return
         if (sel != null && selectedId != null) select(null)
+        if (sel != null && selectedBay != null) selectBay(null, null)
         selectedDoor = sel
         listener?.onDoorSelected(if (sel != null) room else null, sel?.second)
+        invalidate()
+    }
+
+    /** Selects [bay] of [room] (clearing any selected room or door), or clears the bay selection when either is null. */
+    fun selectBay(room: Room?, bay: Bay?) {
+        val sel = if (room != null && bay != null && bay in room.bays) room.id to bay else null
+        if (sel == selectedBay) return
+        if (sel != null && selectedId != null) select(null)
+        if (sel != null && selectedDoor != null) selectDoor(null, null)
+        selectedBay = sel
+        listener?.onBaySelected(if (sel != null) room else null, sel?.second)
         invalidate()
     }
 
@@ -316,6 +359,16 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         }
         renderer.drawWalls(canvas, layout, scale, offX, offY, highlightWall, selectedId, selectedDoor)
         plan.room(selectedId)?.takeIf { it.floor == floor }?.let { renderer.drawSelection(canvas, it, scale, offX, offY) }
+        // The selected bay: its outline in the selection colour.
+        selectedBay?.let { (id, bay) ->
+            val r = plan.room(id)?.takeIf { it.floor == floor && bay in it.bays } ?: return@let
+            val pts = bay.outline(r)
+            val path = Path().apply {
+                moveTo(sx(pts[0][0]), sy(pts[0][1]))
+                for (p in pts.drop(1)) lineTo(sx(p[0]), sy(p[1]))
+            }
+            canvas.drawPath(path, bayHighlight)
+        }
 
         if (draftVisible) {
             val rect = RectF(sx(min(draftX0, draftX1)), sy(min(draftY0, draftY1)), sx(max(draftX0, draftX1)), sy(max(draftY0, draftY1)))
@@ -342,6 +395,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 if (mode == Mode.MOVE) finishMove()
                 if (mode == Mode.RESIZE) finishResize()
                 if (mode == Mode.DOOR) finishDoor()
+                if (mode == Mode.BAY) finishBay()
                 mode = Mode.PINCH
                 setFocus(e, -1)
                 invalidate()
@@ -363,6 +417,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 Mode.MOVE -> updateMove(e.x, e.y)
                 Mode.RESIZE -> updateResize(e.x, e.y)
                 Mode.DOOR -> updateDoor(e.x, e.y)
+                Mode.BAY -> updateBay(e.x, e.y)
                 Mode.LONG_PRESS -> {}
                 Mode.PAN -> {
                     offX += e.x - lastFocusX
@@ -379,6 +434,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                     Mode.MOVE -> finishMove()
                     Mode.RESIZE -> finishResize()
                     Mode.DOOR -> finishDoor()
+                    Mode.BAY -> finishBay()
                     else -> {}
                 }
                 mode = Mode.IDLE
@@ -388,6 +444,7 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
                 if (mode == Mode.MOVE) finishMove()
                 if (mode == Mode.RESIZE) finishResize()
                 if (mode == Mode.DOOR) finishDoor()
+                if (mode == Mode.BAY) finishBay()
                 draftVisible = false
                 mode = Mode.IDLE
                 invalidate()
@@ -397,6 +454,14 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
     }
 
     private fun startDrag(e: MotionEvent) {
+        // Dragging the selected bay: slide it along its wall.
+        val heldBay = bayAt(downX, downY)
+        val bay = selectedBay
+        if (bay != null && heldBay != null && heldBay.first.id == bay.first && heldBay.second == bay.second) {
+            startBayDrag(heldBay.first, heldBay.second)
+            updateBay(e.x, e.y)
+            return
+        }
         val held = doorAt(downX, downY)
         val door = selectedDoor
         if (door != null && held != null && held.first.id == door.first && held.second == door.second) {
@@ -477,6 +542,78 @@ class PlanView(context: Context, attrs: AttributeSet? = null) : View(context, at
         val now = doorNow ?: return
         listener?.onDoorMoved(r, orig, now)
         selectedDoor = r.id to now
+        invalidate()
+    }
+
+    // --- bays: drag the selected bay along its wall ---
+
+    private var bayRoom: Room? = null
+    private var bayOrig: Bay? = null
+    private var bayNow: Bay? = null
+    private var bayRange = 0.0 to 0.0
+
+    /**
+     * How far the bay can slide, as (lowest, highest) offset from the start of its side: within the
+     * stretch of outside wall it's on (not past the end of the wall, or onto a wall shared with
+     * another room), and not into another bay on the same side.
+     */
+    private fun bayLimits(r: Room, b: Bay): Pair<Double, Double> {
+        val base = if (b.side.horizontal) r.x else r.y
+        val (a, z) = b.span(r)
+        val centre = (a + z) / 2
+        val wall = plan.wallLayout().walls.firstOrNull {
+            it.room === r && it.side == b.side && it.neighbour == null && centre >= it.from - 1e-6 && centre <= it.to + 1e-6
+        }
+        var lo = wall?.from ?: base
+        var hi = wall?.to ?: (base + if (b.side.horizontal) r.width else r.depth)
+        for (o in r.bays) {
+            if (o == b || o.side != b.side) continue
+            val (oa, oz) = o.span(r)
+            if (oz <= a + 1e-6) lo = max(lo, oz)
+            if (oa >= z - 1e-6) hi = min(hi, oa)
+        }
+        // Never past where it is now on either side (if it already overhangs, it can only come back in).
+        lo = min(lo, a)
+        hi = max(hi, z)
+        return (lo - base) to (hi - base - b.width)
+    }
+
+    /** Starts sliding [b] of [r]; the finger's moves then go to [updateBay], measured from where it went down. */
+    private fun startBayDrag(r: Room, b: Bay) {
+        mode = Mode.BAY
+        bayRoom = r
+        bayOrig = b
+        bayNow = b
+        bayRange = bayLimits(r, b)
+        listener?.onBeforeMove()
+    }
+
+    /** Slides the bay along its side, its start snapped to the grid, kept within [bayLimits]. */
+    private fun updateBay(x: Float, y: Float) {
+        val r = bayRoom ?: return
+        val orig = bayOrig ?: return
+        val cur = bayNow ?: return
+        val horizontal = orig.side.horizontal
+        val base = if (horizontal) r.x else r.y
+        val delta = (if (horizontal) x - downX else y - downY) / scale
+        val start = round((base + orig.offset + delta) / GRID) * GRID
+        val (lo, hi) = bayRange
+        val offset = round3((start - base).coerceIn(lo, hi))
+        val moved = orig.copy(offset = offset)
+        if (moved == cur) return
+        r.bays = r.bays.map { if (it == cur) moved else it }
+        bayNow = moved
+        selectedBay = r.id to moved
+        invalidate()
+    }
+
+    private fun finishBay() {
+        val r = bayRoom ?: return
+        bayRoom = null
+        val orig = bayOrig ?: return
+        val now = bayNow ?: return
+        listener?.onBayMoved(r, orig, now)
+        selectedBay = r.id to now
         invalidate()
     }
 

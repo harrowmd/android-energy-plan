@@ -180,6 +180,22 @@ outside stretches on one side of a room share one setting.
 
 Wall colours can be changed in **⋮ → Settings…**.
 
+### Multi-Room Edit
+
+**⋮ → Multi-Room Edit…** changes several rooms at once:
+
+- Tick the rooms (all are ticked to start with; **Select none / Select all**
+  toggles them). Each shows its height.
+- Enter any of **Height (m)**, **External**, **Internal** and **Party wall
+  thickness (mm)**. Under each box is what the ticked rooms have now (or
+  "mixed"). Leave a box blank to keep it as it is.
+- **OK** applies the values to all ticked rooms. A wall changes when either
+  room on it is ticked, and only walls of that type change (e.g. External
+  400 mm changes External walls only).
+- With every room ticked, a new thickness also becomes the plan's default
+  for that wall type, for walls added later.
+- One **Undo** takes the whole change back.
+
 ## 5. Bay windows
 
 **Long-press an outside wall** where you want the bay. Choose:
@@ -209,6 +225,24 @@ What a bay does:
   them.
 
 **Long-press a bay** to change it, or tap **Remove** in its dialog.
+
+**Party wall at a square bay's end:** where a square bay meets the
+neighbour's bay, tick **Left end is a Party wall** and/or **Right end is a
+Party wall** in its dialog. **Left and right are as seen standing in the
+room, looking out through the bay** – so on a bay in the bottom wall of the
+plan, "left" is the end on the right of the screen. That
+end is then drawn as a Party wall with the plan's Party thickness, and its
+length counts in the party wall length (PWL) instead of the heat loss
+perimeter (HLP).
+
+**Move a bay along its wall:** tap the bay to select it (outlined in orange;
+the status line shows how far it is from the wall's end), then drag it –
+straight away, or press and hold first: holding a **selected** bay never
+opens its dialog (use **Edit** for that). It
+moves in 10 cm steps and stops at the end of its stretch of outside wall –
+it can't go past the end of the wall, onto a wall shared with another room,
+or into another bay. **Edit** changes the selected bay, **Delete** removes it,
+and **Undo** puts it back where it was.
 
 In the room schedule, rooms with bays are marked **†**, because their area
 is more than width × depth.
@@ -375,9 +409,9 @@ to a cloud folder is slower (each file is uploaded; allow 20–40 seconds).
 **⋮ → Open plan…** lists the plans saved on this tablet, newest first, with
 their rooms and area: tap one to open it. **Other file…** opens Android's
 file picker for a `.json` plan from somewhere else (for example one copied
-from another device). If you pick the `.txt`, `.pdf` or a `.jpg` of a save,
-the plan saved with it is opened. The current plan can be brought back with
-**Undo**.
+from another device). It shows only plan (`.json`) files – plus, in some
+cloud folders, files whose type isn't known. The current plan can be brought
+back with **Undo**.
 
 Android's file picker hides `.json` files in its *Documents* view; in the
 picker, open ☰ → the tablet's storage → Documents → EnergyPlan to see them.
@@ -390,7 +424,12 @@ finished (it also leaves the Recents list). If the save fails, the app stays
 open. An empty plan has nothing to save, so it just closes. **Exit app** in
 the "Saved" message closes the app straight after a save.
 
-After Save and exit (or Exit app), the app opens with the list of saved plans. At the top,
+**⋮ → Exit (without save)** closes the app without saving – for when you were
+only looking at the plan. If you changed something since the last save, it
+asks first, then throws those changes away: next time the plan is as it was
+last saved.
+
+After Save and exit, Exit app or Exit (without save), the app opens with the list of saved plans. At the top,
 **Continue** shows the plan from last time with the file it was last saved
 to or opened from (and whether it has unsaved changes); tap it to carry on,
 tap another plan to open it, or choose **New plan**.
@@ -449,6 +488,7 @@ confirm. The plan on screen and your settings are kept.
 | Item | What it does |
 |---|---|
 | Summary | Area, height, HLP and PWL for every part and floor |
+| Multi-Room Edit… | Set height and wall thicknesses for several rooms at once |
 | Add floor | Copy the selected room's building part to the floor above |
 | Add basement | Copy the selected ground-floor room's part to the basement |
 | Bring forward / to front | Put the selected room above overlapping rooms |
@@ -462,6 +502,7 @@ confirm. The plan on screen and your settings are kept.
 | Help | This guide |
 | About | Version, Check for update, Reinstall |
 | Save and exit | Save the plan, then close the app completely |
+| Exit (without save) | Close the app; changes since the last save are thrown away |
 
 ## 17. Tips and troubleshooting
 

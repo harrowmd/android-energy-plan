@@ -2,6 +2,7 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item android:id="@+id/action_summary" android:title="Summary" app:showAsAction="never" />
+    <item android:id="@+id/action_multi_edit" android:title="Multi-Room Edit…" app:showAsAction="never" />
     <item android:id="@+id/action_add_floor" android:title="Add floor…" app:showAsAction="never" />
     <item android:id="@+id/action_add_basement" android:title="Add basement" app:showAsAction="never" />
     <item android:id="@+id/action_bring_forward" android:title="Bring forward" app:showAsAction="never" />
@@ -17,4 +18,5 @@
     <item android:id="@+id/action_help" android:title="Help" app:showAsAction="never" />
     <item android:id="@+id/action_about" android:title="About" app:showAsAction="never" />
     <item android:id="@+id/action_exit" android:title="Save and exit" app:showAsAction="never" />
+    <item android:id="@+id/action_exit_no_save" android:title="Exit (without save)" app:showAsAction="never" />
 </menu>
